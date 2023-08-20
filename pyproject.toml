@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rpycdec"
+version = "0.0.1"
+authors = [{ name = "cnfatl", email = "cnfatal@gmail.com" }]
+description = "A tool to decrypt .rpyc files"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/cnfatal/rpycdec"
+"Bug Tracker" = "https://github.com/cnfatal/rpycdec/issues"
+
+[project.scripts]
+rpycdec = "rpycdec:main"
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/.github", "/docs"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["renpy", "."]

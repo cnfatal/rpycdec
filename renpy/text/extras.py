@@ -1,0 +1,2 @@
+class ParameterizedText(object):
+    pass

@@ -1,0 +1,11 @@
+*.swp
+*.pyc
+*.pyo
+*.rpy
+*.rpyc
+*.txt
+__pycache__
+/build
+/dist
+/tests
+/.vscode
