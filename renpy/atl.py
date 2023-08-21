@@ -37,8 +37,10 @@ class RawMultipurpose(RawStatement):
             properties = [(self.warper, self.duration)] + properties
         if self.circles != "0":
             raise NotImplementedError
-        if self.expressions:  # tuple list
-            properties = properties + self.expressions
+        for k, v in self.expressions:
+            if v:
+                v = f"with {v}"
+            properties.append((k, v))
         if self.splines:
             raise NotImplementedError
         if self.warp_function:

@@ -15,10 +15,14 @@ def get_imspec_name(imspec) -> str:
     return " ".join(name)
 
 
-class BaseNode(AST):
-    def __new__(cls, *args, **kwargs):
-        self = AST.__new__(cls)
-        return self
+class Node(object):
+    __slots__ = [
+        "name",
+        "filename",
+        "linenumber",
+        "next",
+        "statement_start",
+    ]
 
 
 class ParameterInfo(object):
@@ -59,12 +63,6 @@ class ParameterInfo(object):
 
 
 class ArgumentInfo(object):
-    # __slots__ = [
-    #     "arguments",
-    #     "doublestarred_indexes",
-    #     "starred_indexes",
-    # ]
-
     def get_code(self, **kwargs):
         args = []
         for key, val in self.arguments:
@@ -79,72 +77,31 @@ class ArgumentInfo(object):
         return "(" + ", ".join(args) + ")"
 
 
-class PyExpr(BaseNode, str):
+class PyExpr(str):
     """
     Represents a string containing python code.
     """
 
-    __slots__ = [
-        "filename",
-        "linenumber",
-    ]
-
     def __new__(cls, s, filename, linenumber, py=int):
-        self = str.__new__(cls, s)
-        self.filename = filename
-        self.linenumber = linenumber
-        self.py = py
-        return self
+        return str.__new__(cls, s)
 
-    def __set__(self, instance, value):
-        instance.__dict__[self._name] = value
-        self._set_count += 1
+    def get_code(self, **kwargs) -> str:
+        return self
 
 
 class PyCode(object):
-    __slots__ = [
-        "source",
-        "location",
-        "mode",
-        "bytecode",
-        "hash",
-        "py",
-    ]
-
     def __getstate__(self):
-        return (1, self.source, self.location, self.mode, self.py)
+        return self.state
 
     def __setstate__(self, state):
-        (_, self.source, self.location, self.mode, self.py) = state
-        self.bytecode = None
+        self.state = state
 
     def get_code(self, **kwargs) -> str:
-        return self.source
+        return self.state[1]
 
 
 class Scry(object):
     pass
-
-    # # By default, all attributes are None.
-    # def __getattr__(self, name):
-    #     return None
-
-
-class Node(object):
-    __slots__ = [
-        "name",
-        "filename",
-        "linenumber",
-        "next",
-        "statement_start",
-    ]
-    # items = []
-    # lineno = 0
-    # col_offset = int
-    # end_lineno = None
-    # end_col_offset = None
-    # type_comment = None
-    # body = None
 
 
 class Say(Node):
@@ -160,59 +117,60 @@ class Say(Node):
         "rollback",
     ]
 
-    def get_code(self, dialogue_filter=None):
+    def get_code(self, **kwargs) -> str:
         rv = []
-
         if self.who:
             rv.append(self.who)
-
         if self.attributes is not None:
             rv.extend(self.attributes)
-
         if self.temporary_attributes:
             rv.append("@")
             rv.extend(self.temporary_attributes)
-
-        what = self.what
-        if dialogue_filter is not None:
-            what = dialogue_filter(what)
-
-        rv.append(translation.encode_say_string(what))
-
-        if not self.interact:
-            rv.append("nointeract")
-
+        rv.append(translation.encode_say_string(self.what))
+        # if not self.interact:
+        # rv.append("nointeract")
         if self.with_:
             rv.append("with")
             rv.append(self.with_)
-
         if self.arguments:
-            rv.append(self.arguments.get_code())
-
+            rv.append(util.get_code(self.arguments))
         return " ".join(rv)
 
 
 class Init(Node):
-    def get_code(self, **kwargs) -> str:
-        rv = []
+    def check_translate_strings(self):
+        languages_map = {}
         for item in self.block:
-            stmt = util.get_code(item)
-            if self.priority:
-                stmt = f"init {self.priority} {stmt}"
-            rv.append(stmt)
+            if not isinstance(item, TranslateString):
+                return None
+            if item.language not in languages_map:
+                languages_map[item.language] = []
+            languages_map[item.language].append(item)
+        rv = []
+        for language, items in languages_map.items():
+            rv.append(f"translate {language} strings:")
+            for item in items:
+                rv.append(util.indent(f"old {translation.encode_say_string(item.old)}"))
+                rv.append(util.indent(f"new {translation.encode_say_string(item.new)}"))
+                rv.append("")
         return "\n".join(rv)
 
-
-# https://www.renpy.org/doc/html/label.html#labels-control-flow
-
-"""
-label subroutine(count=1):
-
-    e "I came here [count] time(s)."
-    e "Next, we will return from the subroutine."
-
-    return
-"""
+    def get_code(self, **kwargs) -> str:
+        check_translate_strings = self.check_translate_strings()
+        if check_translate_strings:
+            return check_translate_strings
+        if self.priority == -500:  # default priority ?
+            return util.get_code(self.block)
+        start = "init"
+        if self.priority:
+            start += f" {self.priority}"
+        if len(self.block) == 0:
+            raise NotImplementedError
+        if len(self.block) == 1:
+            return f"{start} {util.get_code(self.block)}"
+        rv = [start + ":"]
+        rv.append(util.indent(util.get_code(self.block)))
+        return "\n".join(rv)
 
 
 class Label(Node):
@@ -224,38 +182,30 @@ class Label(Node):
     ]
 
     def get_code(self, **kwargs) -> str:
-        # inherit label, one useage is with menu
-        # menu chapter_1_places:
-        if not self.block:
-            return self.name
         start = "label"
         if self.name:
             start += f" {self.name}"
         if self.parameters:
             start += f"{util.get_code_parameters(self.parameters)}"
-        if self.block:
-            start += ":"
+        start += ":"  # label always has colon
         rv = [start]
-        for item in self.block:
-            rv.append(util.indent(f"{util.get_code(item)}"))
+        rv.append(util.indent(f"{util.get_code(self.block)}"))
         return "\n".join(rv)
 
 
-# https://www.renpy.org/doc/html/python.html#python-statements
-"""
-python:
-    flag = True
-
-$ flag = True
-"""
-
-
 class Python(Node):
+    # https://www.renpy.org/doc/html/python.html#python-statements
     def get_code(self, **kwargs) -> str:
+        """
+        python:
+            flag = True
+
+        $ flag = True
+        """
+        inner_code = util.get_code(self.code)
         storename = util.parse_store_name(self.store)
-        if not storename and not self.hide:
-            return f"$ {util.get_code(self.code)}"
-        # init -1 python hide:
+        if not storename and not self.hide and len(inner_code.split("\n")) == 1:
+            return f"$ {inner_code}"
         start = "python"
         if storename:
             start += f" in {storename}"
@@ -265,7 +215,7 @@ class Python(Node):
             start += ":"
         rv = [start]
         if self.code:
-            rv.append(util.indent(f"{util.get_code(self.code)}"))
+            rv.append(util.indent(f"{inner_code}"))
         return "\n".join(rv)
 
 
@@ -283,27 +233,29 @@ class Image(Node):
         "code",
         "atl",
     ]
-    """
-    https://www.renpy.org/doc/html/displayables.html#images
-
-    # These two lines are equivalent.
-    image logo = "logo.png"
-    image logo = Image("logo.png")
-
-    # Using Image allows us to specify a default position as part of
-    # an image.
-    image logo right = Image("logo.png", xalign=1.0)
-    """
 
     def get_code(self, **kwargs) -> str:
+        """
+        https://www.renpy.org/doc/html/displayables.html#images
+
+        # These two lines are equivalent.
+        image logo = "logo.png"
+        image logo = Image("logo.png")
+
+        # Using Image allows us to specify a default position as part of
+        # an image.
+        image logo right = Image("logo.png", xalign=1.0)
+        """
         start = "image"
         if self.imgname:
             start += f" {' '.join(self.imgname)}"
-        if self.code or self.atl:
+        if self.code and self.atl:
+            raise NotImplementedError
+        if self.code:
+            return f"{start} = {util.get_code(self.code)}"
+        if self.atl:
             start += ":"
         rv = [start]
-        if self.code:
-            rv.append(util.indent(f"{util.get_code(self.code)}"))
         if self.atl:
             rv.append(util.indent(f"{util.get_code(self.atl)}"))
         return "\n".join(rv)
@@ -319,16 +271,19 @@ class Transform(Node):
         "parameters",
     ]
 
-    """
-    transform notif_t:
-        alpha 0
-        ease .2 alpha 1
-        pause 2.6
-        ease .2 alpha 0 yzoom 0
-    """
-
     def get_code(self, **kwargs) -> str:
-        start = util.get_code_section("transform", self.varname, self.parameters)
+        """
+        transform notif_t:
+            alpha 0
+            ease .2 alpha 1
+            pause 2.6
+            ease .2 alpha 0 yzoom 0
+        """
+        start = "transform"
+        if self.varname:
+            start += f" {self.varname}"
+            if self.parameters:
+                start += f"{util.get_code(self.parameters)}"
         if self.atl:
             start += ":"
         rv = [start]
@@ -348,9 +303,11 @@ class Show(Node):
         name = get_imspec_name(self.imspec)
         if name:
             start += f" {name}"
+        if self.atl:
+            start += ":"
         rv = [start]
         if self.atl:
-            raise NotImplementedError
+            rv.append(util.indent(util.get_code(self.atl)))
         return "\n".join(rv)
 
 
@@ -376,9 +333,11 @@ class Scene(Node):
             start += f" {name}"
         if self.layer:
             raise NotImplementedError
+        if self.atl:
+            start += ":"
         rv = [start]
         if self.atl:
-            raise NotImplementedError
+            rv.append(util.indent(util.get_code(self.atl)))
         return "\n".join(rv)
 
 
@@ -410,41 +369,6 @@ class With(Node):
         return start
 
 
-# https://www.renpy.org/doc/html/label.html#call-statement
-"""
-Call Statementlink
-The call statement is used to transfer control to the given label. 
-It also pushes the next statement onto the call stack,
-allowing the return statement to return control to the statement following the call.
-
-If the expression keyword is present, the expression following it is evaluated,
-and the string so computed is used as the name of the label to call.
-If the expression keyword is not present, the name of the statement to call must be explicitly given.
-
-If the optional from clause is present, it has the effect of including a label statement 
-with the given name as the statement immediately following the call statement.
-An explicit label helps to ensure that saved games with return stacks can return to the proper place
-when loaded on a changed script.
-
-The call statement may take arguments, which are processed as described in PEP 448.
-
-When using a call expression with an arguments list, the pass keyword must be inserted between the expression and the arguments list. Otherwise, the arguments list will be parsed as part of the expression, not as part of the call.
-
-
-label start:
-
-    e "First, we will call a subroutine."
-
-    call subroutine
-
-    call subroutine(2)
-
-    call expression "sub" + "routine" pass (count=3)
-
-    return
-"""
-
-
 class Call(Node):
     __slots__ = [
         "label",
@@ -452,7 +376,16 @@ class Call(Node):
         "expression",
     ]
 
+    # https://www.renpy.org/doc/html/label.html#call-statement
     def get_code(self, **kwargs) -> str:
+        """
+        label start:
+        e "First, we will call a subroutine."
+        call subroutine
+        call subroutine(2)
+        call expression "sub" + "routine" pass (count=3)
+        return
+        """
         start = "call"
         if self.label:
             start += f" {self.label}"
@@ -480,31 +413,6 @@ class Return(Node):
         return "".join(rv)
 
 
-# https://www.renpy.org/doc/html/menus.html#in-game-menus
-
-"""
-default menuset = set()
-
-
-menu chapter_1_places:
-
-    set menuset
-    "Where should I go?"
-    "Dallas, TX" (150, sale=True):
-        jump dallas
-
-    "Go to class." if True:
-        jump go_to_class
-
-    "Go to the bar.":
-        jump go_to_bar
-
-    "Go to jail.":
-        jump go_to_jail
-
-"""
-
-
 class Menu(Node):
     __slots__ = [
         "items",
@@ -516,37 +424,53 @@ class Menu(Node):
         "rollback",
     ]
 
+    # https://www.renpy.org/doc/html/menus.html#in-game-menus
     def get_code(self, **kwargs) -> str:
+        """
+        default menuset = set()
+        menu chapter_1_places:
+            set menuset
+            "Where should I go?"
+            "Dallas, TX" (150, sale=True):
+                jump dallas
+            "Go to class." if True:
+                jump go_to_class
+            "Go to the bar.":
+                jump go_to_bar
+            "Go to jail.":
+                jump go_to_jail
+        """
         start = "menu"
         if self.statement_start:
             if isinstance(self.statement_start, Label):
                 start += f" {self.statement_start.name}"
-            else:
-                if not isinstance(self.statement_start, self.__class__):
-                    raise NotImplementedError
         if self.arguments:
             start += f" {util.get_code(self.arguments)}"
         if self.with_:
             raise NotImplementedError
-        if self.has_caption:
-            raise NotImplementedError
+        # if self.has_caption:
+        #     raise NotImplementedError
         if self.items or self.set:
             start += ":"
         rv = [start]
+        if self.statement_start and not isinstance(self.statement_start, (Label, Menu)):
+            if not self.has_caption:
+                raise NotImplementedError
+            rv.append(util.indent(util.get_code(self.statement_start)))
         if self.set:
             rv.append(util.indent(f"set {self.set}"))
         for idx, (say, cond, expr) in enumerate(self.items):
             argument = self.item_arguments[idx]
             start = translation.encode_say_string(say)
             if argument:
-                start += f" {util.get_code(argument)}"
-            if cond:
+                start += f"{util.get_code(argument)}"
+            if cond and cond != "True":
                 start += f" if {util.get_code(cond)}"
             if expr:
                 start += ":"
             rv.append(util.indent(start))
-            for subitem in expr:
-                rv.append(util.indent(util.get_code(subitem), 2))
+            if expr:
+                rv.append(util.indent(util.get_code(expr), 2))
         return "\n".join(rv)
 
 
@@ -569,9 +493,9 @@ class Pass(Node):
     __slots__ = []
 
     def get_code(self, **kwargs) -> str:
-        return ""
+        # return ""
         # TODO: check if this is correct
-        # may be return "pass" at some cases ?
+        # may be return "pass" or "" at cases ?
         return "pass"
 
 
@@ -588,13 +512,15 @@ class If(Node):
     def get_code(self, **kwargs) -> str:
         rv = []
         for index, (cond, body) in enumerate(self.entries):
+            body_code = util.indent(util.get_code(body))
             if index == 0:
-                rv.append(f"if {cond}:\n{util.indent(util.get_code(body))}")
+                rv.append(f"if {cond}:\n{body_code}")
                 continue
-            if index == len(self.entries) - 1:
-                rv.append(f"else:\n{util.indent(util.get_code(body))}")
+            if cond and cond != "True":
+                rv.append(f"elif {cond}:\n{body_code}")
+            else:
+                rv.append(f"else:\n{body_code}")
                 break
-            rv.append(f"elif {cond}:\n{util.indent(util.get_code(body))}")
         return "\n".join(rv)
 
 
@@ -820,7 +746,7 @@ class Style(Node):
             start += ":"
         rv = [start]
         if properties:
-            rv.append(util.indent(util.get_code_properties(properties)))
+            rv.append(util.indent(util.get_code_properties(properties, newline=True)))
         return "\n".join(rv)
 
 

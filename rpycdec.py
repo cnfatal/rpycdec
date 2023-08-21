@@ -1,5 +1,6 @@
 import argparse
 import os
+import pathlib
 import pickle
 import pickletools
 import struct
@@ -81,11 +82,18 @@ def decompile_dir(input_dir, output_dir=None, overwrite: bool = False):
         output_dir = input_dir
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    for dirpath, _, filenames in os.walk(input_dir):
-        for filename in filenames:
-            if filename.endswith(".rpyc") or filename.endswith(".rpymc"):
-                input_file = os.path.join(dirpath, filename)
-                decompile_file(input_file, overwrite=overwrite)
+
+    for filename in pathlib.Path(input_dir).rglob("*"):
+        if filename.is_dir():
+            continue
+        filename = str(filename.relative_to(input_dir))
+        if filename.endswith(".rpyc") or filename.endswith(".rpymc"):
+            input_file = os.path.join(input_dir, filename)
+            output_file = os.path.join(
+                output_dir,
+                filename.replace(".rpyc", ".rpy").replace(".rpymc", ".rpym"),
+            )
+            decompile_file(input_file, output_file, overwrite=overwrite)
 
 
 def decompile(input, output=None, overwrite=False):
@@ -97,25 +105,15 @@ def decompile(input, output=None, overwrite=False):
 
 def main():
     argparser = argparse.ArgumentParser()
-    argparser.add_argument(
-        "--force",
-        action=argparse.BooleanOptionalAction,
-        help="overwrite exists file",
-    )
-    argparser.add_argument(
-        "path",
-        nargs="+",
-        help="path to rpyc file or directory contains rpyc files",
-    )
+    argparser.add_argument("--force", action="store_true", help="overwrite exists file")
+    argparser.add_argument("--dir", "-d", help="output base directory")
+    argparser.add_argument("path", nargs="+", help="path to rpyc file or directory")
     args = argparser.parse_args()
-    if not args.path:
-        argparser.print_help()
-        return
     for path in args.path:
         if not os.path.exists(path):
             print("path %s not exists", path)
             return
-        util.decompile(path, overwrite=args.force)
+        decompile(path, args.dir, overwrite=args.force)
 
 
 if __name__ == "__main__":

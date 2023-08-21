@@ -1,7 +1,6 @@
 from renpy.ast import ParameterInfo
 from ..ui import Addable
 from .. import util
-from operator import itemgetter
 
 
 class SLContext(Addable):
@@ -15,28 +14,15 @@ class SLNode(object):
 class SLBlock(SLNode):
     def get_code(self, **kwargs) -> str:
         rv = []
-        for child in self.children:
-            rv.append(util.get_code(child))
+        if self.keyword:
+            rv.append(util.get_code_properties(self.keyword, newline=True))
+        if self.children:
+            rv.append(util.get_code(self.children))
         return "\n".join(rv)
 
 
 class SLCache(object):
     pass
-
-
-"""
-# https://www.renpy.org/doc/html/screens.html#add-statement
-
-screen add_test():
-    add "logo.png" xalign 1.0 yalign 0.0
-
-screen python_screen:
-    python:
-        test_name = "Test %d" % test_number
-
-        
-https://www.renpy.org/doc/html/screens.html#use
-"""
 
 
 class SLDisplayable(SLBlock):
@@ -76,26 +62,21 @@ class SLDisplayable(SLBlock):
 
     `variable`
         A variable that the main displayable is assigned to.
+
+    https://www.renpy.org/doc/html/screens.html#add-statement
+    https://www.renpy.org/doc/html/screens.html#use
+    https://www.renpy.org/doc/html/screens.html#has
     """
 
     def get_code(self, **kwargs) -> str:
         start = self.name
+
         # if scope      add:
         # if not scope  add():
         # if not self.scope:
         # start += "()"
         if self.positional:
-            if len(self.positional) == 1:
-                start += f" {self.positional[0]}"
-            else:
-                raise NotImplementedError
-        # default_keywords
-        # if self.default_keywords:
-        #     start += f" {util.get_code_keyword(self.default_keywords)}"
-        # keywords
-        if self.keyword:
-            start += f" {util.get_code_properties(self.keyword)}"
-
+            start += f" {' '.join(self.positional)}"
         # unhandled attributes
         if self.hotspot:
             pass
@@ -105,19 +86,24 @@ class SLDisplayable(SLBlock):
             pass
         if self.unique:
             pass
-        if self.child_or_fixed:
-            pass
         if self.imagemap:
             pass
         if self.variable:
             pass
-
+        # default_keywords
+        # if self.default_keywords:
+        #     start += f" {util.get_code_keyword(self.default_keywords)}"
+        # keywords
+        if not self.children:
+            if self.keyword:
+                start += f" {util.get_code_properties(self.keyword)}"
+            return start
         # children
-        if self.children:
-            start += ":"
+        start += ":"
         rv = [start]
-        for child in self.children:
-            rv.append(util.indent(f"{util.get_code(child)}"))
+        if self.keyword:
+            rv.append(util.indent(util.get_code_properties(self.keyword, newline=True)))
+        rv.append(util.indent(util.get_code(self.children, **kwargs)))
         return "\n".join(rv)
 
 
@@ -125,13 +111,15 @@ class SLIf(SLNode):
     def get_code(self, **kwargs) -> str:
         rv = []
         for index, (cond, body) in enumerate(self.entries):
+            body_code = util.indent(util.get_code(body))
             if index == 0:
-                rv.append(f"if {cond}:\n{util.indent(util.get_code(body))}")
+                rv.append(f"if {cond}:\n{body_code}")
                 continue
-            if index == len(self.entries) - 1:
-                rv.append(f"else:\n{util.indent(util.get_code(body))}")
+            if cond and cond != "True":
+                rv.append(f"elif {cond}:\n{body_code}")
+            else:
+                rv.append(f"else:\n{body_code}")
                 break
-            rv.append(f"elif {cond}:\n{util.indent(util.get_code(body))}")
         return "\n".join(rv)
 
 
@@ -142,10 +130,26 @@ class SLShowIf(SLNode):
 class SLFor(SLBlock):
     pass
 
+    """
+    screen five_buttons():
+        vbox:
+            for i, numeral index numeral in enumerate(numerals):
+                textbutton numeral action Return(i + 1)
+    """
+
+    def get_code(self, **kwargs) -> str:
+        start = f"for {self.variable} in {self.expression}:"
+        rv = [start]
+        rv.append(util.indent(util.get_code(self.children)))
+        return "\n".join(rv)
+
 
 class SLPython(SLNode):
     def get_code(self, **kwargs) -> str:
-        return f"$ {util.get_code(self.code)}"
+        inner_code = util.get_code(self.code)
+        if len(inner_code.splitlines()) == 1:
+            return f"$ {inner_code}"
+        return f"python:\n{util.indent(inner_code)}"
 
 
 class SLPass(SLNode):
@@ -154,17 +158,23 @@ class SLPass(SLNode):
 
 # https://www.renpy.org/doc/html/python.html#default-statement
 class SLDefault(SLNode):
-    pass
-
     def get_code(self, **kwargs) -> str:
-        return f"default {self.variable} {self.expression}"
+        return f"default {self.variable} = {self.expression}"
 
 
 class SLUse(SLNode):
-    pass
-
     def get_code(self, **kwargs) -> str:
-        return f"use {self.target}{util.get_code(self.args)}"
+        start = f"use {self.target}"
+        if self.args:
+            start += f"{util.get_code(self.args)}"
+        if self.block or self.ast:
+            start += ":"
+        rv = [start]
+        if self.block:
+            rv.append(util.indent(util.get_code(self.block)))
+        if self.ast:
+            rv.append(util.indent(util.get_code(self.ast)))
+        return "\n".join(rv)
 
 
 # https://www.renpy.org/doc/html/screens.html#use-and-transclude
@@ -197,15 +207,22 @@ class SLScreen(SLBlock):
             start += f" {self.name}"
             if self.parameters:
                 start += f"{util.get_code(self.parameters)}"
-        if self.keyword or self.children:
+
+        properties = self.keyword.copy()
+        if self.tag:
+            properties.append(("tag", self.tag))
+        if self.layer != "'screens'" and self.layer != "None":
+            properties.append(("layer", self.layer))
+
+        if properties or self.children:
             start += ":"
+
         rv = [start]
         # keyword
-        if self.keyword:
-            rv.append(util.indent(util.get_code_properties(self.keyword, newline=True)))
+        if properties:
+            rv.append(util.indent(util.get_code_properties(properties, newline=True)))
         # children
-        for child in self.children:
-            rv.append(util.indent(util.get_code(child)))
+        rv.append(util.indent(util.get_code(self.children)))
         return "\n".join(rv)
 
 

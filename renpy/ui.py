@@ -36,8 +36,8 @@ class ChildOrFixed(Addable):
         pass
 
 
-# def _hotspot():
-#     pass
+def _hotspot(spot, style="hotspot", **properties):
+    pass
 
 
 def _imagebutton(
@@ -57,7 +57,7 @@ def _imagebutton(
     selected_insensitive=None,
     image_style=None,
     auto=None,
-    **properties
+    **properties,
 ):
     pass
 
@@ -71,7 +71,7 @@ def _imagemap(
     style="imagemap",
     mouse="imagemap",
     with_none=None,
-    **properties
+    **properties,
 ):
     pass
 
@@ -83,7 +83,7 @@ def _textbutton(
     text_style=None,
     substitute=True,
     scope=None,
-    **kwargs
+    **kwargs,
 ):
     pass
 
