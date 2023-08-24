@@ -275,15 +275,6 @@ class Image(Node):
 
 
 class Transform(Node):
-    __slots__ = [
-        # The name of the transform.
-        "varname",
-        # The block of ATL associated with the transform.
-        "atl",
-        # The parameters associated with the transform, if any.
-        "parameters",
-    ]
-
     def get_code(self, **kwargs) -> str:
         """
         transform notif_t:
@@ -463,7 +454,7 @@ class Menu(Node):
         if self.with_:
             start += f" with {self.with_}"
         if self.has_caption:
-            raise NotImplementedError
+            pass
         if self.items or self.set:
             start += ":"
         rv = [start]
@@ -496,7 +487,7 @@ class Jump(Node):
 
     def get_code(self, **kwargs) -> str:
         rv = ["jump"]
-        if self.expression:
+        if self.expression and self.expression != True:
             rv.append(f" {util.get_code(self.expression, **kwargs)}")
         if self.target:
             rv.append(f" {self.target}")
@@ -504,8 +495,6 @@ class Jump(Node):
 
 
 class Pass(Node):
-    __slots__ = []
-
     def get_code(self, **kwargs) -> str:
         # return ""
         # TODO: check if this is correct
@@ -559,17 +548,6 @@ class If(Node):
 
 
 class UserStatement(Node):
-    __slots__ = [
-        "line",
-        "parsed",
-        "block",
-        "translatable",
-        "code_block",
-        "translation_relevant",
-        "rollback",
-        "subparses",
-    ]
-
     def __new__(cls, *args, **kwargs):
         self = Node.__new__(cls)
         self.block = []
@@ -681,6 +659,8 @@ class Translate(Node):
             start += ":"
         rv = [start]
         for item in self.block:
+            # inject translate language and label to all children
+            kwargs.update({"language": self.language, "label": self.identifier})
             rv.append(util.indent(util.get_code(item, **kwargs)))
         return "\n".join(rv)
 

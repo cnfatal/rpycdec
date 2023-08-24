@@ -1,5 +1,4 @@
 from ..ast import ParameterInfo
-from ..sl2 import sldisplayables
 from ..ui import Addable
 from .. import util
 
@@ -72,14 +71,18 @@ class SLDisplayable(SLBlock):
     def get_name(self) -> str:
         # higher version use style instead of name
         start = getattr(self, "name", None)
-        if not start:
-            start = self.style
+        if not start and self.style:
+            start = self.style.replace("_", "")
         if not start:
             displable = getattr(self, "displayable", None)
             if not displable:
                 raise Exception("displayable not found")
             # displayable function named sl2xxx like sl2vbar , sl2viewport
-            start = displable.__name__.replace("sl2", "")
+            displable_name = displable.__name__
+            if displable_name.startswith("sl2"):
+                start = displable_name.replace("sl2", "")
+            else:
+                start = displable_name.replace("_", "")
         return start
 
     def get_code(self, **kwargs) -> str:

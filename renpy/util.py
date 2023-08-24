@@ -100,5 +100,10 @@ def get_code(node, **kwargs) -> str:
         return "\n".join(rv)
 
     # modify node before get code
-    kwargs.get("modifier", lambda x: x)(node)
+    modifier = kwargs.get("modifier")
+    if modifier:
+        params = modifier(node, **kwargs)
+        if isinstance(params, bool) and not params:
+            # remove modifier so that it won't be called in children
+            kwargs.pop("modifier")
     return node.get_code(**kwargs)

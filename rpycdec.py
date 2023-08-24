@@ -1,4 +1,5 @@
 import argparse
+from concurrent.futures import ProcessPoolExecutor
 import logging
 import os
 import pathlib
@@ -11,6 +12,8 @@ import zlib
 import renpy.util
 import renpy.ast
 import renpy.sl2.slast
+import glob
+
 
 # A string at the start of each rpycv2 file.
 RPYC2_HEADER = b"RENPY RPC2"
@@ -25,13 +28,13 @@ def noop_translator(text: str) -> str:
 class Translator(object):
     trans_func: Callable[[str], str]
     trans_lang: re.Pattern
-    trans_origin: bool = False
+    translations_map = {}
+    translated_map = {}
 
     def __init__(
         self,
         trans_func: Callable[[str], str] = noop_translator,
-        trans_lang: str = "",
-        trans_origin: bool = False,
+        trans_lang: str = "english",
     ) -> None:
         """
         Parameters
@@ -44,7 +47,6 @@ class Translator(object):
         """
         self.trans_func = trans_func
         self.trans_lang = trans_lang
-        self.trans_origin = trans_origin
 
     def trans_call(self, line) -> str:
         return self.trans_func(line)
@@ -85,11 +87,11 @@ class Translator(object):
             translated = translated.replace(ph_ch, p, 1)
         return translated
 
-    def trans_text(self, text: str) -> str:
+    def on_text(self, text: str) -> str:
         if text.strip() == "":
             return text
         if text[0] == '"' and text[-1] == '"':
-            return '"' + self.trans_text(text[1:-1]) + '"'
+            return '"' + self.on_text(text[1:-1]) + '"'
         if "%" in text:  # format string
             return text
         if re.match(r"^[a-z0-9_\(\)\[\]]+$", text):
@@ -102,24 +104,24 @@ class Translator(object):
         result = result.replace("%", "")
         return result
 
-    def trans_expr(self, text: str) -> str:
+    def on_expr(self, expr: str) -> str:
         prev_end, dquoters = 0, []
         result = ""
-        for i, ch in enumerate(text):
-            if i > 0 and text[i - 1] == "\\":
+        for i, ch in enumerate(expr):
+            if i > 0 and expr[i - 1] == "\\":
                 continue
             if ch == '"':
                 if not dquoters:
-                    result += text[prev_end : i + 1]
-                    dquoters.append(i + 1)
+                    result += expr[prev_end:i]
+                    dquoters.append(i)
                 else:
-                    result += '"' + self.trans_text(text[dquoters.pop() : i]) + '"'
+                    result += self.on_text(expr[dquoters.pop() : i + 1])
                     prev_end = i + 1
         else:
-            result += text[prev_end:]
+            result += expr[prev_end:]
         return result
 
-    def trans_python(self, code: str) -> str:
+    def on_block(self, code: str) -> str:
         """
         find strings in python expr and translate it
         """
@@ -130,72 +132,131 @@ class Translator(object):
             # match _("hello") 's hello
             for find in re.finditer(r'_\("(.+?)"\)', text):
                 start, group, end = find.start(1), find.group(1), find.end(1)
-                result += text[prev_end:start] + self.trans_text(group)
+                result += text[prev_end:start] + self.on_text(group)
                 prev_end = end
             else:
                 result += text[prev_end:]
             results.append(result)
         return "\n".join(results)
 
-    def translate_node(self, node):
-        if (
-            isinstance(node, renpy.ast.TranslateString)
-            and self.trans_lang
-            and re.match(self.trans_lang, node.language)
-        ):
-            node.new = self.trans_text(node.new)
+    def on_translate(self, kind, text) -> str:
+        match kind:
+            case "text":
+                text = self.on_text(text)
+            case "expr":
+                text = self.on_expr(text)
+            case "block":
+                text = self.on_block(text)
+            case _:
+                text = self.on_text(text)
+        return text
 
-        if self.trans_lang:
-            if isinstance(node, renpy.ast.Translate):
-                if node.language == self.trans_lang:
-                    pass
-            elif isinstance(node, renpy.ast.TranslateString):
-                if node.language == self.trans_lang:
-                    node.new = self.trans_text(node.new)
+    def do_collect(self, label: str, lang: str, item: (str, str)) -> str:
+        label = label or item[1]
+        if lang or (not lang and label not in self.translations_map):
+            self.translations_map[label] = item
+        return item[1]
 
-        if self.trans_origin:
-            if isinstance(node, renpy.ast.Say):
-                node.what = self.trans_text(node.what)
-            elif isinstance(node, renpy.sl2.slast.SLDisplayable):
-                if node.get_name() in ["text", "textbutton"]:
-                    for i, val in enumerate(node.positional):
-                        node.positional[i] = self.trans_expr(val)
-            elif isinstance(node, renpy.ast.Show):
-                pass
-            elif isinstance(node, renpy.ast.UserStatement):
-                pass
-            elif isinstance(node, renpy.ast.PyCode):
-                state = list(node.state)
-                state[1] = self.trans_python(state[1])
-                node.state = tuple(state)
-            elif isinstance(node, renpy.sl2.slast.SLBlock):
-                pass
-            elif isinstance(node, renpy.sl2.slast.SLUse):
-                if node.args:
-                    for i, (name, val) in enumerate(node.args.arguments):
-                        node.args.arguments[i] = (name, self.trans_python(val))
-            elif isinstance(node, renpy.ast.Menu):
-                for i, item in enumerate(node.items):
-                    li = list(item)
-                    li[0] = self.trans_text(li[0])
-                    node.items[i] = tuple(li)
+    def do_translate(self, label: str, lang: str, item: (str, str)) -> str:
+        return (self.translated_map.get(label or item[1]) or item)[1]
 
-    def translate_stmts(self, stmts):
-        return renpy.util.get_code(stmts, modifier=self.translate_node)
+    def walk_node(self, node, callback, **kwargs) -> bool:
+        parent_label, parent_lang = kwargs.get("label"), kwargs.get("language")
+        if isinstance(node, renpy.ast.Translate):
+            if node.language and node.language != self.trans_lang:
+                return False
+        elif isinstance(node, renpy.ast.TranslateString):
+            if node.language and node.language != self.trans_lang:
+                return False
+            # use node.old as key
+            node.new = callback(node.old, node.language, ("text", node.new))
+        elif isinstance(node, renpy.ast.Say):
+            if parent_lang and parent_lang != self.trans_lang:
+                return False
+            node.what = callback(parent_label, parent_lang, ("text", node.what))
+        elif isinstance(node, renpy.sl2.slast.SLDisplayable):
+            if node.get_name() in ["text", "textbutton"]:
+                for i, val in enumerate(node.positional):
+                    val = callback(parent_label, parent_lang, ("expr", val))
+                    node.positional[i] = val
+        elif isinstance(node, renpy.ast.Show):
+            pass
+        elif isinstance(node, renpy.ast.UserStatement):
+            pass
+        elif isinstance(node, renpy.ast.PyCode):
+            state = list(node.state)
+            state[1] = callback(parent_label, parent_lang, ("block", state[1]))
+            node.state = tuple(state)
+        elif isinstance(node, renpy.sl2.slast.SLBlock):
+            pass
+        elif isinstance(node, renpy.sl2.slast.SLUse):
+            if node.args:
+                for i, (name, val) in enumerate(node.args.arguments):
+                    val = callback(parent_label, parent_lang, ("block", val))
+                    node.args.arguments[i] = (name, val)
+        elif isinstance(node, renpy.ast.Menu):
+            for i, item in enumerate(node.items):
+                li = list(item)
+                li[0] = callback(parent_label, parent_lang, ("text", li[0]))
+                node.items[i] = tuple(li)
+        return True
+
+    def walk_callback(self, stmts, callback) -> str:
+        return renpy.util.get_code(
+            stmts,
+            modifier=lambda node, **kwargs: self.walk_node(node, callback, **kwargs),
+        )
 
     def translate_file(self, input_file, output_file=None):
         if not output_file:
             output_file = input_file.rtrim("c")
-        # load
-        logger.info(f"translating {input_file} to {output_file}")
         stmts = load_file(input_file)
-        # trans and generate code
-        code = self.translate_stmts(stmts)
-        with open(output_file, "wt") as f:
-            f.write(code)
+        code = self.walk_callback(stmts, self.do_translate)
+        write_file(output_file, code)
 
-    def translate(self, input: str, output: str = None, overwrite: bool = False):
-        walk_path(input, output, on_file=self.translate_file, overwrite=overwrite)
+    def translate_dir(
+        self,
+        input: str,
+        output: str = None,
+        concurent: int = os.cpu_count(),
+    ):
+        if not output:
+            output = input
+        files = glob_files(input, "*.rpyc")
+        stmts_map = {}
+        # load translations
+        logger.info("loading translations")
+        for file in files:
+            stmts = load_file(os.path.join(input, file))
+            stmts_map[file] = stmts
+            self.walk_callback(stmts, self.do_collect)
+        # translate
+        logger.info("loaded %d translations", len(self.translations_map))
+        logger.info("translating")
+
+        results = {}
+        for label, (kind, text) in self.translations_map.items():
+            results[label] = (kind, self.on_translate(kind, text))
+            logger.info("translated %d/%d", len(results), len(self.translations_map))
+        self.translated_map = results
+        # generate code
+        logger.info("generating code")
+        for filename, stmts in stmts_map.items():
+            code = self.walk_callback(stmts, self.do_translate)
+            output_file = os.path.join(output, filename.removesuffix("c"))
+            write_file(output_file, code)
+
+    def translate(self, input, output=None):
+        if os.path.isfile(input):
+            return self.translate_file(input, output)
+        return self.translate_dir(input, output)
+
+
+def write_file(f, data):
+    if not os.path.exists(os.path.dirname(f)):
+        os.makedirs(os.path.dirname(f))
+    with open(f, "w") as f:
+        f.write(data)
 
 
 def read_rpyc_data(f, slot):
@@ -247,54 +308,34 @@ def load_file(filename, disasm: bool = False):
     return None
 
 
-def decompile_translate(
-    input,
-    output=None,
-    overwrite: bool = False,
-    trans_lang: str = "",
-    translator: Callable[[str], str] = noop_translator,
-):
-    Translator(
-        trans_func=translator,
-        trans_lang=trans_lang,
-        trans_origin=True,
-    ).translate(input, output, overwrite)
+def decompile_translate(input, output=None, translator=noop_translator):
+    Translator(trans_func=translator).translate(input, output)
 
 
 def decompile_file(input_file, output_file=None):
     if not output_file:
         output_file = input_file.removesuffix("c")
-    logger.info(f"decompiling {input_file} to {output_file}")
-    # unpickle
     stmts = load_file(input_file)
-    # decompile
     code = renpy.util.get_code(stmts)
-    with open(output_file, "wt") as f:
-        f.write(code)
+    write_file(output_file, code)
 
 
-def decompile(input, output=None, overwrite: bool = False):
-    walk_path(input, output, on_file=decompile_file, overwrite=overwrite)
+def decompile(input, output=None):
+    walk_path(input, output, on_file=decompile_file)
 
 
-def walk_path(
-    input,
-    output=None,
-    overwrite: bool = False,
-    on_file: Callable[[str, str], None] = None,
-):
-    if not output:
-        output = input
+def glob_files(dir: str, pattern: str) -> list[str]:
+    return [os.path.relpath(f, dir) for f in glob.glob(os.path.join(dir, pattern))]
+
+
+def walk_path(input, output=None, on_file: Callable[[str, str], None] = None):
     if not os.path.isdir(input):
-        output_file = output.removesuffix("c")
-        if os.path.exists(output_file) and not overwrite:
-            raise FileExistsError(f"{output_file} exists")
-        if not os.path.exists(os.path.dirname(output_file)):
-            os.makedirs(os.path.dirname(output_file))
+        if not output:
+            output_file = input.removesuffix("c")
         on_file(input, output_file)
         return
-    if not os.path.exists(output):
-        os.makedirs(output)
+    if not output:
+        output = input
     for item in pathlib.Path(input).rglob("*"):
         if item.is_dir():
             continue
@@ -303,24 +344,16 @@ def walk_path(
             input_file = os.path.join(input, filename)
             # remove suffix c
             output_file = os.path.join(output, filename.removesuffix("c"))
-            if os.path.exists(output_file) and not overwrite:
-                raise FileExistsError(f"{output_file} exists")
-            if not os.path.exists(os.path.dirname(output_file)):
-                os.makedirs(os.path.dirname(output_file))
             on_file(input_file, output_file)
 
 
 def main():
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--force", action="store_true", help="overwrite exists file")
     argparser.add_argument("--dir", "-d", help="output base directory")
     argparser.add_argument("path", nargs="+", help="path to rpyc file or directory")
     args = argparser.parse_args()
     for path in args.path:
-        try:
-            walk_path(path, args.dir, args.force, decompile_file)
-        except FileExistsError as e:
-            print(e)
+        decompile(path, args.dir)
 
 
 if __name__ == "__main__":
