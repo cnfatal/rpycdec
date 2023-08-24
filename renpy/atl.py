@@ -20,10 +20,9 @@ class Statement(Object):
 
 class RawBlock(RawStatement):
     def get_code(self, **kwargs) -> str:
-        rv = []
-        for stmt in self.statements:
-            rv.append(util.get_code(stmt))
-        return "\n".join(rv)
+        if self.animation:
+            raise NotImplementedError
+        return util.get_code(self.statements, **kwargs)
 
 
 class Block(Statement):
@@ -56,7 +55,8 @@ class RawContainsExpr(RawStatement):
 
 # This allows us to have multiple ATL transforms as children.
 class RawChild(RawStatement):
-    pass
+    def get_code(self, **kwargs) -> str:
+        return util.get_code(self.children, **kwargs)
 
 
 # This changes the child of this statement, optionally with a transition.
@@ -76,7 +76,7 @@ class RawRepeat(RawStatement):
     # atl_repeat ::=  "repeat" (simple_expression)?
     def get_code(self, **kwargs) -> str:
         if self.repeats:
-            return f"repeat {util.get_code(self.repeats)}"
+            return f"repeat {util.get_code(self.repeats, **kwargs)}"
         return "repeat"
 
 
@@ -88,7 +88,8 @@ class Repeat(Statement):
 
 
 class RawParallel(RawStatement):
-    pass
+    def get_code(self, **kwargs) -> str:
+        return util.get_code(self.blocks, **kwargs)
 
 
 class Parallel(Statement):
@@ -96,7 +97,12 @@ class Parallel(Statement):
 
 
 class RawChoice(RawStatement):
-    pass
+    def get_code(self, **kwargs) -> str:
+        rv = []
+        for text, stmt in self.choices:
+            rv.append(f"choice {text}:")
+            rv.append(util.indent(util.get_code(stmt, **kwargs)))
+        return "\n".join(rv)
 
 
 class Choice(Statement):
@@ -127,7 +133,7 @@ class RawOn(RawStatement):
         rv = []
         for text, stmt in self.handlers.items():
             rv.append(f"on {text}:")
-            rv.append(util.indent(util.get_code(stmt)))
+            rv.append(util.indent(util.get_code(stmt, **kwargs)))
         return "\n".join(rv)
 
 

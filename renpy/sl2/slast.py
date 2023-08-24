@@ -1,4 +1,5 @@
-from renpy.ast import ParameterInfo
+from ..ast import ParameterInfo
+from ..sl2 import sldisplayables
 from ..ui import Addable
 from .. import util
 
@@ -17,7 +18,7 @@ class SLBlock(SLNode):
         if self.keyword:
             rv.append(util.get_code_properties(self.keyword, newline=True))
         if self.children:
-            rv.append(util.get_code(self.children))
+            rv.append(util.get_code(self.children, **kwargs))
         return "\n".join(rv)
 
 
@@ -68,8 +69,30 @@ class SLDisplayable(SLBlock):
     https://www.renpy.org/doc/html/screens.html#has
     """
 
+    def get_name(self) -> str:
+        # higher version use style instead of name
+        start = getattr(self, "name", None)
+        if not start:
+            start = self.style
+        if not start:
+            displable = getattr(self, "displayable", None)
+            if not displable:
+                raise Exception("displayable not found")
+            # displayable function named sl2xxx like sl2vbar , sl2viewport
+            start = displable.__name__.replace("sl2", "")
+        return start
+
     def get_code(self, **kwargs) -> str:
-        start = self.name
+        # higher version use style instead of name
+        start = self.get_name()
+        if not start:
+            start = self.style
+        if not start:
+            displable = getattr(self, "displayable", None)
+            if not displable:
+                raise Exception("displayable not found")
+            # displayable function named sl2xxx like sl2vbar , sl2viewport
+            start = displable.__name__.replace("sl2", "")
 
         # if scope      add:
         # if not scope  add():
@@ -83,8 +106,6 @@ class SLDisplayable(SLBlock):
         if self.replaces:
             pass
         if self.pass_context:
-            pass
-        if self.unique:
             pass
         if self.imagemap:
             pass
@@ -111,7 +132,7 @@ class SLIf(SLNode):
     def get_code(self, **kwargs) -> str:
         rv = []
         for index, (cond, body) in enumerate(self.entries):
-            body_code = util.indent(util.get_code(body))
+            body_code = util.indent(util.get_code(body, **kwargs))
             if index == 0:
                 rv.append(f"if {cond}:\n{body_code}")
                 continue
@@ -140,13 +161,13 @@ class SLFor(SLBlock):
     def get_code(self, **kwargs) -> str:
         start = f"for {self.variable} in {self.expression}:"
         rv = [start]
-        rv.append(util.indent(util.get_code(self.children)))
+        rv.append(util.indent(util.get_code(self.children, **kwargs)))
         return "\n".join(rv)
 
 
 class SLPython(SLNode):
     def get_code(self, **kwargs) -> str:
-        inner_code = util.get_code(self.code)
+        inner_code = util.get_code(self.code, **kwargs)
         if len(inner_code.splitlines()) == 1:
             return f"$ {inner_code}"
         return f"python:\n{util.indent(inner_code)}"
@@ -166,14 +187,14 @@ class SLUse(SLNode):
     def get_code(self, **kwargs) -> str:
         start = f"use {self.target}"
         if self.args:
-            start += f"{util.get_code(self.args)}"
+            start += f"{util.get_code(self.args, **kwargs)}"
         if self.block or self.ast:
             start += ":"
         rv = [start]
         if self.block:
-            rv.append(util.indent(util.get_code(self.block)))
+            rv.append(util.indent(util.get_code(self.block, **kwargs)))
         if self.ast:
-            rv.append(util.indent(util.get_code(self.ast)))
+            rv.append(util.indent(util.get_code(self.ast, **kwargs)))
         return "\n".join(rv)
 
 
@@ -206,7 +227,7 @@ class SLScreen(SLBlock):
         if self.name:
             start += f" {self.name}"
             if self.parameters:
-                start += f"{util.get_code(self.parameters)}"
+                start += f"{util.get_code(self.parameters, **kwargs)}"
 
         properties = self.keyword.copy()
         if self.tag:
@@ -222,7 +243,7 @@ class SLScreen(SLBlock):
         if properties:
             rv.append(util.indent(util.get_code_properties(properties, newline=True)))
         # children
-        rv.append(util.indent(util.get_code(self.children)))
+        rv.append(util.indent(util.get_code(self.children, **kwargs)))
         return "\n".join(rv)
 
 

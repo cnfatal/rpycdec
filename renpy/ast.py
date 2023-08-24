@@ -1,6 +1,11 @@
-from ast import AST
 from . import translation
 from . import util
+
+
+def parse_store_name(name: str) -> str:
+    if name == "store":
+        return ""
+    return name.lstrip("store.")
 
 
 def get_imspec_name(imspec) -> str:
@@ -70,9 +75,13 @@ class ArgumentInfo(object):
                 args.append(f"{key}={val}")
             else:
                 args.append(val)
-        if self.starred_indexes:
+        if getattr(self, "starred_indexes", None):
             raise NotImplementedError
-        if self.doublestarred_indexes:
+        if getattr(self, "doublestarred_indexes", None):
+            raise NotImplementedError
+        if getattr(self, "extrakw", None):
+            raise NotImplementedError
+        if getattr(self, "extrapos", None):
             raise NotImplementedError
         return "(" + ", ".join(args) + ")"
 
@@ -133,43 +142,24 @@ class Say(Node):
             rv.append("with")
             rv.append(self.with_)
         if self.arguments:
-            rv.append(util.get_code(self.arguments))
+            rv.append(util.get_code(self.arguments, **kwargs))
         return " ".join(rv)
 
 
 class Init(Node):
-    def check_translate_strings(self):
-        languages_map = {}
-        for item in self.block:
-            if not isinstance(item, TranslateString):
-                return None
-            if item.language not in languages_map:
-                languages_map[item.language] = []
-            languages_map[item.language].append(item)
-        rv = []
-        for language, items in languages_map.items():
-            rv.append(f"translate {language} strings:")
-            for item in items:
-                rv.append(util.indent(f"old {translation.encode_say_string(item.old)}"))
-                rv.append(util.indent(f"new {translation.encode_say_string(item.new)}"))
-                rv.append("")
-        return "\n".join(rv)
-
     def get_code(self, **kwargs) -> str:
-        check_translate_strings = self.check_translate_strings()
-        if check_translate_strings:
-            return check_translate_strings
         if self.priority == -500:  # default priority ?
-            return util.get_code(self.block)
+            return util.get_code(self.block, **kwargs)
         start = "init"
         if self.priority:
             start += f" {self.priority}"
         if len(self.block) == 0:
             raise NotImplementedError
-        if len(self.block) == 1:
-            return f"{start} {util.get_code(self.block)}"
+        inner_code = util.get_code(self.block, **kwargs)
+        if inner_code.count("\n") == 0:
+            return f"{start} {inner_code}"
         rv = [start + ":"]
-        rv.append(util.indent(util.get_code(self.block)))
+        rv.append(util.indent(inner_code))
         return "\n".join(rv)
 
 
@@ -186,10 +176,10 @@ class Label(Node):
         if self.name:
             start += f" {self.name}"
         if self.parameters:
-            start += f"{util.get_code_parameters(self.parameters)}"
+            start += f"{util.get_code(self.parameters,**kwargs)}"
         start += ":"  # label always has colon
         rv = [start]
-        rv.append(util.indent(f"{util.get_code(self.block)}"))
+        rv.append(util.indent(f"{util.get_code(self.block, **kwargs)}"))
         return "\n".join(rv)
 
 
@@ -202,8 +192,8 @@ class Python(Node):
 
         $ flag = True
         """
-        inner_code = util.get_code(self.code)
-        storename = util.parse_store_name(self.store)
+        inner_code = util.get_code(self.code, **kwargs)
+        storename = parse_store_name(self.store)
         if not storename and not self.hide and len(inner_code.split("\n")) == 1:
             return f"$ {inner_code}"
         start = "python"
@@ -225,6 +215,29 @@ class EarlyPython(Node):
         "code",
         "store",
     ]
+
+    def get_code(self, **kwargs) -> str:
+        """
+        python early:
+            flag = True
+
+        $ flag = True
+        """
+        inner_code = util.get_code(self.code, **kwargs)
+        storename = parse_store_name(self.store)
+        if not storename and not self.hide and len(inner_code.split("\n")) == 1:
+            return f"$ {inner_code}"
+        start = "python early"
+        if storename:
+            start += f" in {storename}"
+        if self.hide:
+            start += " hide"
+        if self.code:
+            start += ":"
+        rv = [start]
+        if self.code:
+            rv.append(util.indent(f"{inner_code}"))
+        return "\n".join(rv)
 
 
 class Image(Node):
@@ -252,12 +265,12 @@ class Image(Node):
         if self.code and self.atl:
             raise NotImplementedError
         if self.code:
-            return f"{start} = {util.get_code(self.code)}"
+            return f"{start} = {util.get_code(self.code,**kwargs)}"
         if self.atl:
             start += ":"
         rv = [start]
         if self.atl:
-            rv.append(util.indent(f"{util.get_code(self.atl)}"))
+            rv.append(util.indent(f"{util.get_code(self.atl, **kwargs)}"))
         return "\n".join(rv)
 
 
@@ -283,12 +296,12 @@ class Transform(Node):
         if self.varname:
             start += f" {self.varname}"
             if self.parameters:
-                start += f"{util.get_code(self.parameters)}"
+                start += f"{util.get_code(self.parameters,**kwargs)}"
         if self.atl:
             start += ":"
         rv = [start]
         if self.atl:
-            rv.append(util.indent(util.get_code(self.atl)))
+            rv.append(util.indent(util.get_code(self.atl, **kwargs)))
         return "\n".join(rv)
 
 
@@ -307,7 +320,7 @@ class Show(Node):
             start += ":"
         rv = [start]
         if self.atl:
-            rv.append(util.indent(util.get_code(self.atl)))
+            rv.append(util.indent(util.get_code(self.atl, **kwargs)))
         return "\n".join(rv)
 
 
@@ -328,16 +341,17 @@ class Scene(Node):
 
     def get_code(self, **kwargs) -> str:
         start = "scene"
-        name = get_imspec_name(self.imspec)
-        if name:
-            start += f" {name}"
+        if self.imspec:
+            name = get_imspec_name(self.imspec)
+            if name:
+                start += f" {name}"
         if self.layer:
-            raise NotImplementedError
+            start += f" {self.layer}"
         if self.atl:
             start += ":"
         rv = [start]
         if self.atl:
-            rv.append(util.indent(util.get_code(self.atl)))
+            rv.append(util.indent(util.get_code(self.atl, **kwargs)))
         return "\n".join(rv)
 
 
@@ -363,9 +377,9 @@ class With(Node):
     def get_code(self, **kwargs) -> str:
         start = "with"
         if self.paired:
-            start += f" {util.get_code(self.paired)}"
+            start += f" {util.get_code(self.paired,**kwargs)}"
         if self.expr and self.expr != "None":
-            start += f" {util.get_code(self.expr)}"
+            start += f" {util.get_code(self.expr,**kwargs)}"
         return start
 
 
@@ -390,9 +404,9 @@ class Call(Node):
         if self.label:
             start += f" {self.label}"
         if self.expression:
-            start += f" expression {util.get_code(self.expression)} pass "
+            start += f" expression {util.get_code(self.expression,**kwargs)} pass "
         if self.arguments:
-            start += f"({util.get_code_parameters(self.arguments)})"
+            start += f"{util.get_code(self.arguments,**kwargs)}"
         return start
 
 
@@ -409,7 +423,7 @@ class Return(Node):
     def get_code(self, **kwargs) -> str:
         rv = ["return"]
         if self.expression:
-            rv.append(f" {util.get_code(self.expression)}")
+            rv.append(f" {util.get_code(self.expression, **kwargs)}")
         return "".join(rv)
 
 
@@ -445,32 +459,32 @@ class Menu(Node):
             if isinstance(self.statement_start, Label):
                 start += f" {self.statement_start.name}"
         if self.arguments:
-            start += f" {util.get_code(self.arguments)}"
+            start += f" {util.get_code(self.arguments,**kwargs)}"
         if self.with_:
+            start += f" with {self.with_}"
+        if self.has_caption:
             raise NotImplementedError
-        # if self.has_caption:
-        #     raise NotImplementedError
         if self.items or self.set:
             start += ":"
         rv = [start]
         if self.statement_start and not isinstance(self.statement_start, (Label, Menu)):
             if not self.has_caption:
                 raise NotImplementedError
-            rv.append(util.indent(util.get_code(self.statement_start)))
+            rv.append(util.indent(util.get_code(self.statement_start, **kwargs)))
         if self.set:
             rv.append(util.indent(f"set {self.set}"))
         for idx, (say, cond, expr) in enumerate(self.items):
             argument = self.item_arguments[idx]
             start = translation.encode_say_string(say)
             if argument:
-                start += f"{util.get_code(argument)}"
+                start += f"{util.get_code(argument,**kwargs)}"
             if cond and cond != "True":
-                start += f" if {util.get_code(cond)}"
+                start += f" if {util.get_code(cond,**kwargs)}"
             if expr:
                 start += ":"
             rv.append(util.indent(start))
             if expr:
-                rv.append(util.indent(util.get_code(expr), 2))
+                rv.append(util.indent(util.get_code(expr, **kwargs), 2))
         return "\n".join(rv)
 
 
@@ -483,7 +497,7 @@ class Jump(Node):
     def get_code(self, **kwargs) -> str:
         rv = ["jump"]
         if self.expression:
-            rv.append(f" {util.get_code(self.expression)}")
+            rv.append(f" {util.get_code(self.expression, **kwargs)}")
         if self.target:
             rv.append(f" {self.target}")
         return "".join(rv)
@@ -504,6 +518,26 @@ class While(Node):
         "condition",
         "block",
     ]
+    """
+    https://www.renpy.org/doc/html/conditional.html#while-statement
+
+    while lines: # evaluates to True as long as the list is not empty
+        play sound lines.pop(0) # removes the first element
+        pause
+
+    while True:
+        "This is the song that never terminates."
+        "It goes on and on, my compatriots."
+    """
+
+    def get_code(self, **kwargs) -> str:
+        start = f"while {self.condition}"
+        if self.block:
+            start += ":"
+        rv = [start]
+        if self.block:
+            rv.append(util.indent(util.get_code(self.block, **kwargs)))
+        return "\n".join(rv)
 
 
 class If(Node):
@@ -512,7 +546,7 @@ class If(Node):
     def get_code(self, **kwargs) -> str:
         rv = []
         for index, (cond, body) in enumerate(self.entries):
-            body_code = util.indent(util.get_code(body))
+            body_code = util.indent(util.get_code(body, **kwargs))
             if index == 0:
                 rv.append(f"if {cond}:\n{body_code}")
                 continue
@@ -553,7 +587,6 @@ class UserStatement(Node):
         rv = [start]
         for item in self.block:
             raise NotImplementedError
-            rv.append(util.indent(f"{util.get_code(item)}"))
         return "\n".join(rv)
 
 
@@ -585,10 +618,13 @@ class Define(Node):
     def get_code(self, **kwargs) -> str:
         start = "define"
         varname = self.varname
-        store_name = util.parse_store_name(self.store)
+        store_name = parse_store_name(self.store)
         if store_name:
             varname = f"{store_name}.{varname}"
-        return f"{start} {varname} {self.operator} {util.get_code(self.code)}"
+        operator = "="
+        if getattr(self, "operator", None):
+            operator = self.operator
+        return f"{start} {varname} {operator} {util.get_code(self.code,**kwargs)}"
 
 
 # All the default statements, in the order they were registered.
@@ -608,7 +644,7 @@ class Default(Node):
         st = self.store.lstrip("store.")
         if st and st != "store":
             varname = f"{st}.{varname}"
-        return f"default {varname} = {util.get_code(self.code)}"
+        return f"default {varname} = {util.get_code(self.code,**kwargs)}"
 
 
 # https://www.renpy.org/doc/html/screens.html#screen-language
@@ -618,7 +654,7 @@ class Screen(Node):
     ]
 
     def get_code(self, **kwargs) -> str:
-        return util.get_code(self.screen)
+        return util.get_code(self.screen, **kwargs)
 
 
 class Translate(Node):
@@ -645,7 +681,7 @@ class Translate(Node):
             start += ":"
         rv = [start]
         for item in self.block:
-            rv.append(util.indent(util.get_code(item)))
+            rv.append(util.indent(util.get_code(item, **kwargs)))
         return "\n".join(rv)
 
 
@@ -755,3 +791,27 @@ class Testcase(Node):
         "label",
         "test",
     ]
+
+
+class Camera(Node):
+    """
+    https://www.renpy.org/doc/html/3dstage.html#using-the-3d-stage
+
+    # Enabling the 3D stage for the background layer.
+    camera background:
+        perspective True
+
+    """
+
+    def get_code(self, **kwargs) -> str:
+        start = "camera"
+        if self.layer:
+            start += f" {self.layer}"
+        if self.at_list:
+            raise NotImplementedError
+        if self.atl:
+            start += ":"
+        rv = [start]
+        if self.atl:
+            rv.append(util.indent(util.get_code(self.atl, **kwargs)))
+        return "\n".join(rv)

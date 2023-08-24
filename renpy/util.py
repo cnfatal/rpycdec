@@ -1,26 +1,7 @@
-from packaging import version
-
 from .ast import Call, Label, Menu, Pass, Say, With
-import types
 
 
 IDENT_CHAR = "    "
-
-# register callback to modify node
-node_callbacks = []
-
-
-def get_renpy_version() -> str:
-    # TODO: get renpy version from somewhere
-    return version.parse("7.3.5")
-
-
-def on_node_callback(node, **kwargs):
-    """
-    modify node here
-    """
-    for callback in node_callbacks:
-        callback(node, **kwargs)
 
 
 def indent(code: str, level: int = 1) -> str:
@@ -54,38 +35,6 @@ def get_code_properties(props: tuple | dict, newline: bool = False) -> str:
     return ("\n" if newline else " ").join(list)
 
 
-def get_code_parameters(params) -> str:
-    """
-    :param params: tuple | dict
-    :return: str
-
-    >>> get_code_parameters((("a", 1), ("b", 2)))
-    "(a=1, b=2)"
-
-    >>> get_code_parameters((("a", 1), (None, b)))
-    "(a=1, b)"
-
-    >>> get_code_parameters()
-    ""
-    """
-    if not params:
-        return ""
-    rv = []
-    for k, v in params:
-        if v is None:
-            rv.append(k)
-        else:
-            rv.append(f"{k}={get_code(v)}")
-    s = ", ".join(rv)
-    return f"({s})"
-
-
-def parse_store_name(name: str) -> str:
-    if name == "store":
-        return ""
-    return name.lstrip("store.")
-
-
 def __append_first_line(text, add) -> str:
     lines = text.splitlines()
     if lines:
@@ -95,7 +44,28 @@ def __append_first_line(text, add) -> str:
     return "\n".join(lines)
 
 
-def get_code(node, level: int = 0, **kwargs) -> str:
+def get_code(node, **kwargs) -> str:
+    """
+    Parameters
+    ----------
+    node : ast.Node
+    kwargs : dict
+        indent : int
+            space indent level
+        modifier : Callable[[ast.Node], ast.Node]
+            modify node before get code
+
+    Returns
+    -------
+    str
+        generated code
+
+    Raises
+    ------
+    NotImplementedError
+        if node type is not implemented or some attributes unable to handle.
+
+    """
     if isinstance(node, list):
         rv = []
         skip_next = 0
@@ -107,7 +77,6 @@ def get_code(node, level: int = 0, **kwargs) -> str:
             prev = node[idx - 1] if idx > 0 else None
             next = node[idx + 1] if idx < len(node) - 1 else None
 
-            #
             # TODO: it's a hack, fix it later
             if isinstance(item, Say) and not item.interact and isinstance(next, Menu):
                 continue
@@ -127,12 +96,9 @@ def get_code(node, level: int = 0, **kwargs) -> str:
                     # skip pass after call
                     skip_next += 1
                 continue
-
-            kwargs["prev_node"] = prev
-            kwargs["next_node"] = next
-            rv.append(indent(get_code(item, level=level + 1, **kwargs), level=level))
+            rv.append(get_code(item, **kwargs))
         return "\n".join(rv)
 
-    # other types
-    on_node_callback(node, **kwargs)
+    # modify node before get code
+    kwargs.get("modifier", lambda x: x)(node)
     return node.get_code(**kwargs)
