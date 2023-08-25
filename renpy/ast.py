@@ -707,6 +707,9 @@ class TranslateBlock(Node):
         "language",
     ]
 
+    def get_code(self, **kwargs) -> str:
+        raise NotImplementedError
+
 
 class TranslateEarlyBlock(TranslateBlock):
     pass

@@ -1,5 +1,4 @@
-from .ast import Call, Label, Menu, Pass, Say, With
-
+from . import ast
 
 IDENT_CHAR = "    "
 
@@ -78,21 +77,25 @@ def get_code(node, **kwargs) -> str:
             next = node[idx + 1] if idx < len(node) - 1 else None
 
             # TODO: it's a hack, fix it later
-            if isinstance(item, Say) and not item.interact and isinstance(next, Menu):
+            if (
+                isinstance(item, ast.Say)
+                and not item.interact
+                and isinstance(next, ast.Menu)
+            ):
                 continue
-            if isinstance(item, Label) and isinstance(next, Menu):
+            if isinstance(item, ast.Label) and isinstance(next, ast.Menu):
                 if next.statement_start == item:
                     continue  # skip label before menu
-            if isinstance(item, With):
+            if isinstance(item, ast.With):
                 if item.paired:
                     continue
                 prevprev = node[idx - 2] if idx - 2 >= 0 else None
-                if isinstance(prevprev, With) and prevprev.paired == item.expr:
+                if isinstance(prevprev, ast.With) and prevprev.paired == item.expr:
                     rv[-1] = __append_first_line(rv[-1], f" with {item.expr}")
                     continue
-            if isinstance(item, Label) and isinstance(prev, Call):
+            if isinstance(item, ast.Label) and isinstance(prev, ast.Call):
                 rv[-1] = __append_first_line(rv[-1], f" from {item.name}")
-                if isinstance(next, Pass):
+                if isinstance(next, ast.Pass):
                     # skip pass after call
                     skip_next += 1
                 continue
@@ -102,8 +105,5 @@ def get_code(node, **kwargs) -> str:
     # modify node before get code
     modifier = kwargs.get("modifier")
     if modifier:
-        params = modifier(node, **kwargs)
-        if isinstance(params, bool) and not params:
-            # remove modifier so that it won't be called in children
-            kwargs.pop("modifier")
+        modifier(node, **kwargs)
     return node.get_code(**kwargs)
