@@ -121,12 +121,18 @@ class CodeTranslator(object):
                 case "[":
                     squares.append(i)
                 case "]" if squares:
-                    phs.append(line[squares.pop() : i + 1])
+                    end = squares.pop()
+                    if squares:
+                        continue
+                    phs.append(line[end : i + 1])
                     totranslate += ph_ch
                 case "{":
                     braces.append(i)
                 case "}" if braces:
-                    phs.append(line[braces.pop() : i + 1])
+                    end = braces.pop()
+                    if braces:
+                        continue
+                    phs.append(line[end : i + 1])
                     totranslate += ph_ch
                 case _:
                     if not squares and not braces:
@@ -200,6 +206,10 @@ class CodeTranslator(object):
             case _:
                 text = self.on_text(text)
         return text
+
+
+def noop_translator(text: str) -> str:
+    return text
 
 
 def walk_node(node, callback, **kwargs):
@@ -338,7 +348,11 @@ def translate(
     if os.path.isfile(input):
         if not output:
             output = input.removesuffix("c")
-        (_, code) = translate_files("", [input]).popitem()
+        (_, code) = translate_files(
+            "",
+            [input],
+            translator=translator,
+        ).popitem()
         logger.info("writing %s", output)
         write_file(output, code)
         return
@@ -433,8 +447,13 @@ def load_file(filename, disasm: bool = False):
 def decompile_file(input_file, output_file=None):
     if not output_file:
         output_file = input_file.removesuffix("c")
+    if not output_file.endswith(".rpy"):
+        output_file = os.path.join(
+            output_file, os.path.basename(input_file).removesuffix("c")
+        )
     stmts = load_file(input_file)
     code = renpy.util.get_code(stmts)
+    logger.info("writing %s", output_file)
     write_file(output_file, code)
 
 
@@ -472,10 +491,9 @@ def main():
     argparser.add_argument("src", nargs=1, help="rpyc file or directory")
     argparser.add_argument("dest", nargs="?", help="output file or directory")
     args = argparser.parse_args()
+    logging.basicConfig(level=logging.INFO)
     if args.verbose:
         logger.setLevel(logging.DEBUG)
-    else:
-        logger.setLevel(logging.INFO)
     if args.translate:
         translate(
             args.src[0],

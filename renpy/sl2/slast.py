@@ -1,9 +1,7 @@
-from ..ast import ParameterInfo
-from ..ui import Addable
-from .. import util
+from .. import ast, ui, util
 
 
-class SLContext(Addable):
+class SLContext(ui.Addable):
     pass
 
 
@@ -70,19 +68,26 @@ class SLDisplayable(SLBlock):
 
     def get_name(self) -> str:
         # higher version use style instead of name
-        start = getattr(self, "name", None)
-        if not start and self.style:
-            start = self.style.replace("_", "")
-        if not start:
-            displable = getattr(self, "displayable", None)
-            if not displable:
-                raise Exception("displayable not found")
+        name = getattr(self, "name", None)
+        displable = getattr(self, "displayable", None)
+        start = ""
+        if name:
+            start = name
+        elif displable:
             # displayable function named sl2xxx like sl2vbar , sl2viewport
-            displable_name = displable.__name__
+            displable_name = displable.__name__.lower()
             if displable_name.startswith("sl2"):
                 start = displable_name.replace("sl2", "")
             else:
                 start = displable_name.replace("_", "")
+        else:
+            raise Exception("displayable not found")
+        if self.style:
+            match start:
+                case "multibox":
+                    start = self.style
+                case "window":
+                    start = self.style
         return start
 
     def get_code(self, **kwargs) -> str:
@@ -188,7 +193,12 @@ class SLDefault(SLNode):
 
 class SLUse(SLNode):
     def get_code(self, **kwargs) -> str:
-        start = f"use {self.target}"
+        start = f"use"
+        if self.target:
+            if isinstance(self.target, ast.PyExpr):
+                start += f" expression {util.get_code(self.target, **kwargs)}"
+            else:
+                start += f" {self.target}"
         if self.args:
             start += f"{util.get_code(self.args, **kwargs)}"
         if self.block or self.ast:
@@ -222,7 +232,7 @@ class SLTransclude(SLNode):
 
 # https://www.renpy.org/doc/html/screens.html#screen-statement
 class SLScreen(SLBlock):
-    parameters: ParameterInfo
+    parameters: ast.ParameterInfo
     keyword: list
 
     def get_code(self, **kwargs) -> str:

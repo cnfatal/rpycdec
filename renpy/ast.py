@@ -17,6 +17,8 @@ def get_imspec_name(imspec) -> str:
     elif len(imspec) == 3:
         name, at_list, layer = imspec
         expression, tag, zorder = None, None, []
+    if expression:
+        return f"expression {expression}"
     return " ".join(name)
 
 
@@ -392,10 +394,13 @@ class Call(Node):
         return
         """
         start = "call"
+        if self.expression:
+            if self.expression == True:
+                start += f" expression"
+            else:
+                start += f" expression {util.get_code(self.expression,**kwargs)} pass "
         if self.label:
             start += f" {self.label}"
-        if self.expression:
-            start += f" expression {util.get_code(self.expression,**kwargs)} pass "
         if self.arguments:
             start += f"{util.get_code(self.arguments,**kwargs)}"
         return start
@@ -451,13 +456,13 @@ class Menu(Node):
                 start += f" {self.statement_start.name}"
         if self.arguments:
             start += f" {util.get_code(self.arguments,**kwargs)}"
-        if self.with_:
-            start += f" with {self.with_}"
         if self.has_caption:
             pass
-        if self.items or self.set:
+        if self.items or self.set or self.with_:
             start += ":"
         rv = [start]
+        if self.with_:
+            rv.append(util.indent(f"with {self.with_}"))
         if self.statement_start and not isinstance(self.statement_start, (Label, Menu)):
             if not self.has_caption:
                 raise NotImplementedError
