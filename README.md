@@ -42,3 +42,7 @@ Use pipenv to manage dependencies:
 ```sh
 pipenv install --dev
 ```
+
+## Community
+
+- [Telegram Group](https://t.me/rpycdec)
