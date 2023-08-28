@@ -1,10 +1,9 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling","hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "rpycdec"
-version = "0.0.1"
 authors = [{ name = "cnfatl", email = "cnfatal@gmail.com" }]
 description = "A tool to decrypt .rpyc files"
 readme = "README.md"
@@ -15,6 +14,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+dynamic = ["version"]
 
 [project.urls]
 "Homepage" = "https://github.com/cnfatal/rpycdec"
@@ -28,3 +28,6 @@ exclude = ["/.github", "/docs"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["renpy", "."]
+
+[tool.hatch.version]
+source = "vcs"
