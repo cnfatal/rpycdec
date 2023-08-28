@@ -1,4 +1,10 @@
+"""
+Module decompile rpyc files. 
+"""
+
+
 import argparse
+import io
 import logging
 import os
 import pickle
@@ -7,12 +13,13 @@ import re
 import struct
 import time
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from typing import Callable
 
 import plyvel
-from ratelimit import limits, sleep_and_retry
 import requests
+from ratelimit import limits, sleep_and_retry
 
 import renpy.ast
 import renpy.sl2.slast
@@ -24,7 +31,11 @@ RPYC2_HEADER = b"RENPY RPC2"
 logger = logging.getLogger(__name__)
 
 
-class GoogleTranslator(object):
+class GoogleTranslator:
+    """
+    Google translate api wrapper
+    """
+
     session = requests.Session()
 
     def __init__(self, src: str = "auto", dest: str = "zh-CN") -> None:
@@ -36,6 +47,9 @@ class GoogleTranslator(object):
     @limits(calls=5, period=1)
     # google translate api is not free, so use cache
     def translate(self, text: str) -> str:
+        """
+        Translate text to dest language
+        """
         if text.strip() == "" or re.match(r"^[0-9\W]+$", text):
             return text
         forms = {
@@ -48,7 +62,7 @@ class GoogleTranslator(object):
         server = "https://translate.google.com"
         resp = self.session.post(f"{server}/translate_a/single", data=forms)
         if resp.status_code != 200:
-            raise Exception(f"translate error: {resp.status_code}")
+            raise ValueError(f"translate error: {resp.status_code}")
         data = resp.json()
         segments = ""
         for sec in data[0]:
@@ -56,7 +70,12 @@ class GoogleTranslator(object):
         return segments
 
 
-class CachedTranslator(object):
+class CachedTranslator:
+    """
+    Translator wrapper with cache.
+    Use local disk cache to avoid translate same text again and again.
+    """
+
     cache = {}
     _translate: Callable[[str], str]
 
@@ -65,6 +84,9 @@ class CachedTranslator(object):
         self.cache = plyvel.DB(cache_dir, create_if_missing=True)
 
     def translate(self, text: str) -> str:
+        """
+        translate text and cache it
+        """
         start_time = time.time()
         logger.debug(">>> [%s]", text)
         cachekey = sha256(text.encode()).hexdigest().encode()
@@ -76,11 +98,16 @@ class CachedTranslator(object):
         translated = self._translate(text)
         self.cache.put(cachekey, translated.encode())
         cost_time = time.time() - start_time
-        logger.debug(f"<<< [{translated}] [cost {cost_time:.2f}s]")
+        logger.debug("<<< [%s] [cost %f.2s]", translated, cost_time)
         return translated
 
 
-class CodeTranslator(object):
+class CodeTranslator:
+    """
+    Translate warpped for renpy code.
+    Parse text in renpy code(block, expr, text) and translate it.
+    """
+
     _translator: Callable[[str], str]
 
     def __init__(self, translator: Callable[[str], str]) -> None:
@@ -92,7 +119,7 @@ class CodeTranslator(object):
         """
         self.translator = translator
 
-    def call_translate(self, line) -> str:
+    def _call_translate(self, line) -> str:
         return self.translator(line)
 
     def trans_placeholder(self, line) -> str:
@@ -113,11 +140,11 @@ class CodeTranslator(object):
         totranslate = ""
         # {}  []
         braces, squares = [], []
-        for i, ch in enumerate(line):
+        for i, char in enumerate(line):
             if i > 0 and line[i - 1] == "\\":
-                totranslate += ch
+                totranslate += char
                 continue
-            match ch:
+            match char:
                 case "[":
                     squares.append(i)
                 case "]" if squares:
@@ -136,48 +163,51 @@ class CodeTranslator(object):
                     totranslate += ph_ch
                 case _:
                     if not squares and not braces:
-                        totranslate += ch
+                        totranslate += char
 
-        translated = self.call_translate(totranslate) if totranslate else line
-        for p in phs:
+        translated = self._call_translate(totranslate) if totranslate else line
+        for placeholder in phs:
             # translate in placeholder
             # e.g. "{#r=hello}"
-            m = re.search(r"{#\w=(.+?)}", p)
-            if m:
-                tp = self.trans_placeholder(m.group(1))
-                p = p[: m.start(1)] + tp + p[m.end(1) :]
-            translated = translated.replace(ph_ch, p, 1)
+            matched = re.search(r"{#\w=(.+?)}", placeholder)
+            if matched:
+                translated = self.trans_placeholder(matched.group(1))
+                placeholder = (
+                    placeholder[: matched.start(1)]
+                    + translated
+                    + placeholder[matched.end(1) :]
+                )
+            translated = translated.replace(ph_ch, placeholder, 1)
         return translated
 
-    def on_text(self, text: str) -> str:
+    def _on_text(self, text: str) -> str:
         if text.strip() == "":
             return text
         if text[0] == '"' and text[-1] == '"':
-            return '"' + self.on_text(text[1:-1]) + '"'
+            return '"' + self._on_text(text[1:-1]) + '"'
         if "%" in text:  # format string
             return text
         result = self.trans_placeholder(text)
         result = result.replace("%", "")
         return result
 
-    def on_expr(self, expr: str) -> str:
+    def _on_expr(self, expr: str) -> str:
         prev_end, dquoters = 0, []
         result = ""
-        for i, ch in enumerate(expr):
+        for i, char in enumerate(expr):
             if i > 0 and expr[i - 1] == "\\":
                 continue
-            if ch == '"':
+            if char == '"':
                 if not dquoters:
                     result += expr[prev_end:i]
                     dquoters.append(i)
                 else:
-                    result += self.on_text(expr[dquoters.pop() : i + 1])
+                    result += self._on_text(expr[dquoters.pop() : i + 1])
                     prev_end = i + 1
-        else:
-            result += expr[prev_end:]
+        result += expr[prev_end:]
         return result
 
-    def on_block(self, code: str) -> str:
+    def _on_block(self, code: str) -> str:
         """
         find strings in python expr and translate it
         """
@@ -188,31 +218,48 @@ class CodeTranslator(object):
             # match _("hello") 's hello
             for find in re.finditer(r'_\("(.+?)"\)', text):
                 start, group, end = find.start(1), find.group(1), find.end(1)
-                result += text[prev_end:start] + self.on_text(group)
+                result += text[prev_end:start] + self._on_text(group)
                 prev_end = end
-            else:
-                result += text[prev_end:]
+            result += text[prev_end:]
             results.append(result)
         return "\n".join(results)
 
     def translate(self, kind, text) -> str:
+        """
+        translate text by kind
+
+        Parameters
+        ----------
+        kind : str
+            text, expr, block
+        text : str
+            text to translate
+        """
         match kind:
             case "text":
-                text = self.on_text(text)
+                text = self._on_text(text)
             case "expr":
-                text = self.on_expr(text)
+                text = self._on_expr(text)
             case "block":
-                text = self.on_block(text)
+                text = self._on_block(text)
             case _:
-                text = self.on_text(text)
+                text = self._on_text(text)
         return text
 
 
 def noop_translator(text: str) -> str:
+    """
+    translate that do nothing but return text self
+    """
     return text
 
 
 def walk_node(node, callback, **kwargs):
+    """
+    callback: (kind, label, lang, old, new) -> translated
+
+    walk ast node and call callback on nodes that contains text/expr/block
+    """
     p_label, p_lang = kwargs.get("label"), kwargs.get("language")
     if isinstance(node, renpy.ast.Translate):
         pass
@@ -243,19 +290,19 @@ def walk_node(node, callback, **kwargs):
                 node.args.arguments[i] = (name, val)
     elif isinstance(node, renpy.ast.Menu):
         for i, item in enumerate(node.items):
-            li = list(item)
-            li[0] = callback(("text", p_label, p_lang, li[0], None))
-            node.items[i] = tuple(li)
+            _li = list(item)
+            _li[0] = callback(("text", p_label, p_lang, _li[0], None))
+            node.items[i] = tuple(_li)
 
 
-def do_consume(m: tuple, cache: dict) -> str:
-    (kind, label, lang, old, new) = m
+def _do_consume(meta: tuple, cache: dict) -> str:
+    (_, label, _, old, new) = meta
     key, val = label or old, new or old
     return cache.get(key) or val
 
 
-def do_collect(m: tuple, accept_lang: str, into: dict) -> str:
-    (kind, label, lang, old, new) = m
+def _do_collect(meta: tuple, accept_lang: str, into: dict) -> str:
+    (kind, label, lang, old, new) = meta
     key, val = label or old, new or old
     if accept_lang and lang and lang != accept_lang:
         return val
@@ -264,7 +311,7 @@ def do_collect(m: tuple, accept_lang: str, into: dict) -> str:
     return val
 
 
-def walk_callback(stmts, callback) -> str:
+def _walk_callback(stmts, callback) -> str:
     return renpy.util.get_code(
         stmts,
         modifier=lambda node, **kwargs: walk_node(node, callback, **kwargs),
@@ -272,6 +319,9 @@ def walk_callback(stmts, callback) -> str:
 
 
 def default_translator() -> Callable[[str], str]:
+    """
+    default translator which use google translate api with CachedTranslator
+    """
     return CachedTranslator(GoogleTranslator().translate).translate
 
 
@@ -295,9 +345,9 @@ def translate_files(
         logger.info("loading %s", filename)
         stmts = load_file(os.path.join(base_dir, filename))
         stmts_dict[filename] = stmts
-        walk_callback(
+        _walk_callback(
             stmts,
-            lambda meta: do_collect(meta, include_tl_lang, translations_dict),
+            lambda meta: _do_collect(meta, include_tl_lang, translations_dict),
         )
     logger.info("loaded %d translations", len(translations_dict))
 
@@ -306,9 +356,7 @@ def translate_files(
     results_dict = {}
     code_translator = CodeTranslator(translator)
     if concurent:
-        logger.info(f"translating with {concurent} workers")
-        from concurrent.futures import ThreadPoolExecutor
-
+        logger.info("translating with %d concurent", concurent)
         with ThreadPoolExecutor(max_workers=concurent) as executor:
             results = executor.map(
                 lambda item: (
@@ -332,82 +380,102 @@ def translate_files(
     logger.info("generating code")
     for filename, stmts in stmts_dict.items():
         logger.info("gnerating code for %s", filename)
-        code_files[filename] = walk_callback(
-            stmts, lambda meta: do_consume(meta, results_dict)
+        code_files[filename] = _walk_callback(
+            stmts, lambda meta: _do_consume(meta, results_dict)
         )
     return code_files
 
 
 def translate(
-    input,
-    output=None,
+    input_path,
+    output_path=None,
     translator: Callable[[str], str] = None,
     include_tl_lang: str = "english",
     concurent: int = 0,
 ):
-    if os.path.isfile(input):
-        if not output:
-            output = input.removesuffix("c")
+    """
+    translate rpyc file or directory
+    """
+    if os.path.isfile(input_path):
+        if not output_path:
+            output_path = input_path.removesuffix("c")
         (_, code) = translate_files(
             "",
-            [input],
+            [input_path],
             translator=translator,
         ).popitem()
-        logger.info("writing %s", output)
-        write_file(output, code)
+        logger.info("writing %s", output_path)
+        write_file(output_path, code)
         return
 
-    if not output:
-        output = input
-    matches = match_files(input, ".*\.rpym?c$")
+    if not output_path:
+        output_path = input_path
+    matches = match_files(input_path, r".*\.rpym?c$")
     file_codes = translate_files(
-        input,
+        input_path,
         matches,
         translator=translator,
         include_tl_lang=include_tl_lang,
         concurent=concurent,
     )
     for filename, code in file_codes.items():
-        output_file = os.path.join(output, filename.removesuffix("c"))
+        output_file = os.path.join(output_path, filename.removesuffix("c"))
         logger.info("writing %s", output_file)
         write_file(output_file, code)
 
 
-def write_file(f, data):
-    if not os.path.exists(os.path.dirname(f)):
-        os.makedirs(os.path.dirname(f))
-    with open(f, "w") as f:
-        f.write(data)
+def write_file(filename: str, data: str):
+    """
+    write data to file
+    """
+    if not os.path.exists(os.path.dirname(filename)):
+        os.makedirs(os.path.dirname(filename))
+    with open(filename, "w", encoding="utf-8") as file:
+        file.write(data)
 
 
-def match_files(dir: str, pattern: str) -> list[str]:
+def match_files(base_dir: str, pattern: str) -> list[str]:
+    """
+    match files in dir with regex pattern
+
+    Parameters
+    ----------
+    base_dir : str
+        directory to find in
+    pattern : str
+        regex pattern
+
+    Returns
+    -------
+    list[str]
+        matched filenames relative to base_dir
+    """
+
     if pattern == "":
         pattern = ".*"
-    result = []
-    m = re.compile(pattern)
-    for root, dirs, files in os.walk(dir):
-        result.extend(
-            filter(
-                lambda f: m.match(f),
-                map(lambda f: os.path.relpath(os.path.join(root, f), dir), files),
-            )
-        )
-    return result
+    results = []
+    matched = re.compile(pattern)
+    for root, _, files in os.walk(base_dir):
+        for filename in files:
+            filename = os.path.relpath(os.path.join(root, filename), base_dir)
+            if matched.match(filename):
+                results.append(filename)
+    return results
 
 
-def read_rpyc_data(f, slot):
+def read_rpyc_data(file: io.FileIO, slot):
     """
     Reads the binary data from `slot` in a .rpyc (v1 or v2) file. Returns
     the data if the slot exists, or None if the slot does not exist.
     """
-    f.seek(0)
-    header_data = f.read(1024)
+    file.seek(0)
+    header_data = file.read(1024)
     # Legacy path.
     if header_data[: len(RPYC2_HEADER)] != RPYC2_HEADER:
         if slot != 1:
             return None
-        f.seek(0)
-        data = f.read()
+        file.seek(0)
+        data = file.read()
         return zlib.decompress(data)
     # RPYC2 path.
     pos = len(RPYC2_HEADER)
@@ -418,33 +486,39 @@ def read_rpyc_data(f, slot):
         if header_slot == 0:
             return None
         pos += 12
-    f.seek(start)
-    data = f.read(length)
+    file.seek(start)
+    data = file.read(length)
     return zlib.decompress(data)
 
 
-def load_file(filename, disasm: bool = False):
+def load_file(filename, disasm: bool = False) -> renpy.ast.Node:
+    """
+    load renpy code from rpyc file and return ast tree.
+    """
     ext = os.path.splitext(filename)[1]
     if ext in [".rpy", ".rpym"]:
         raise NotImplementedError(
             "unsupport for pase rpy file or use renpy.parser.parse() in renpy's SDK"
         )
     if ext in [".rpyc", ".rpymc"]:
-        with open(filename, "rb") as f:
+        with open(filename, "rb") as file:
             for slot in [1, 2]:
-                bindata = read_rpyc_data(f, slot)
+                bindata = read_rpyc_data(file, slot)
                 if bindata:
                     if disasm:
                         disasm_file = filename + ".disasm"
-                        with open(disasm_file, "wt") as disasm_f:
+                        with open(disasm_file, "w", encoding="utf-8") as disasm_f:
                             pickletools.dis(bindata, out=disasm_f)
-                    data, stmts = pickle.loads(bindata)
+                    _, stmts = pickle.loads(bindata)
                     return stmts
-                f.seek(0)
+                file.seek(0)
     return None
 
 
 def decompile_file(input_file, output_file=None):
+    """
+    decompile rpyc file into rpy file and write to output.
+    """
     if not output_file:
         output_file = input_file.removesuffix("c")
     if not output_file.endswith(".rpy"):
@@ -457,20 +531,33 @@ def decompile_file(input_file, output_file=None):
     write_file(output_file, code)
 
 
-def decompile(input, output=None):
-    if not os.path.isdir(input):
-        decompile_file(input, output)
+def decompile(input_path, output_path=None):
+    """
+    decompile rpyc file or directory into rpy
+
+    Parameters
+    ----------
+    input_path : str
+        path to rpyc file or directory contains rpyc files
+    output_path : str, optional
+        output path, by default it's same path of input_path.
+    """
+    if not os.path.isdir(input_path):
+        decompile_file(input_path, output_path)
         return
-    if not output:
-        output = input
-    for filename in match_files(input, ".*\.rpym?c$"):
+    if not output_path:
+        output_path = input_path
+    for filename in match_files(input_path, r".*\.rpym?c$"):
         decompile_file(
-            os.path.join(input, filename),
-            os.path.join(output, filename.removesuffix("c")),
+            os.path.join(input_path, filename),
+            os.path.join(output_path, filename.removesuffix("c")),
         )
 
 
 def main():
+    """
+    command line tool entry.
+    """
     logging.basicConfig(level=logging.INFO)
     argparser = argparse.ArgumentParser()
     argparser.add_argument(

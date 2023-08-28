@@ -34,3 +34,11 @@ import rpycdec
 
 rpycdec.decompile(filename)
 ```
+
+## Development  
+
+Use pipenv to manage dependencies:
+
+```sh
+pipenv install --dev
+```
