@@ -78,6 +78,8 @@ class SLDisplayable(SLBlock):
             displable_name = displable.__name__.lower()
             if displable_name.startswith("sl2"):
                 start = displable_name.replace("sl2", "")
+            elif displable_name == "onevent":
+                start = "on"
             else:
                 start = displable_name.replace("_", "")
         else:
@@ -94,13 +96,7 @@ class SLDisplayable(SLBlock):
         # higher version use style instead of name
         start = self.get_name()
         if not start:
-            start = self.style
-        if not start:
-            displable = getattr(self, "displayable", None)
-            if not displable:
-                raise Exception("displayable not found")
-            # displayable function named sl2xxx like sl2vbar , sl2viewport
-            start = displable.__name__.replace("sl2", "")
+            raise Exception("displayable not found")
 
         # if scope      add:
         # if not scope  add():
@@ -140,7 +136,10 @@ class SLIf(SLNode):
     def get_code(self, **kwargs) -> str:
         rv = []
         for index, (cond, body) in enumerate(self.entries):
-            body_code = util.indent(util.get_code(body, **kwargs))
+            body_code = util.get_code(body, **kwargs)
+            if not body_code:
+                body_code = "pass"
+            body_code = util.indent(body_code)
             if index == 0:
                 rv.append(f"if {cond}:\n{body_code}")
                 continue
