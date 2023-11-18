@@ -107,3 +107,19 @@ def get_code(node, **kwargs) -> str:
     if modifier:
         modifier(node, **kwargs)
     return node.get_code(**kwargs)
+
+
+def get_block_code(node, **kwargs) -> str:
+    """
+    https://www.renpy.org/doc/html/layeredimage.html#layeredimage
+    """
+    if isinstance(node, list):
+        return "\n".join(map(lambda x: get_block_code(x, **kwargs), node))
+    lines = []
+    if isinstance(node, tuple) and len(node) >= 4:
+        _, _, code, block = node
+        lines.append(code)
+        lines.append(indent(get_block_code(block, **kwargs)))
+    else:
+        raise NotImplementedError
+    return "\n".join(lines)

@@ -531,7 +531,11 @@ def load_file(filename, disasm: bool = False) -> renpy.ast.Node:
                         disasm_file = filename + ".disasm"
                         with open(disasm_file, "w", encoding="utf-8") as disasm_f:
                             pickletools.dis(bindata, out=disasm_f)
-                    _, stmts = pickle.loads(bindata)
+                    try:
+                        _, stmts = pickle.loads(bindata)
+                    except Exception as e:
+                        logger.error("load %s failed: %s", filename, e)
+                        raise e
                     return stmts
                 file.seek(0)
     return None

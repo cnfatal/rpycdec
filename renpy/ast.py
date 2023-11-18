@@ -565,11 +565,9 @@ class UserStatement(Node):
 
     def get_code(self, **kwargs) -> str:
         start = self.line
-        if self.block:
-            start += ":\n"
         rv = [start]
-        for item in self.block:
-            raise NotImplementedError
+        if self.block:
+            rv.append(util.indent(util.get_block_code(self.block, **kwargs)))
         return "\n".join(rv)
 
 
