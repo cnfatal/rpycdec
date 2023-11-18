@@ -12,7 +12,7 @@ A tools for decompiling and translating Ren'py compiled script files (.rpyc and 
 Install with pip:
 
 ```sh
-pip install rpypcdec
+pip install rpycdec
 ```
 
 Decompile a file or directory:

@@ -10,6 +10,7 @@ import os
 import pickle
 import pickletools
 import re
+import sqlite3
 import struct
 import time
 import zlib
@@ -17,7 +18,6 @@ from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from typing import Callable
 
-import plyvel
 import requests
 from ratelimit import limits, sleep_and_retry
 
@@ -81,7 +81,29 @@ class CachedTranslator:
 
     def __init__(self, translator: Callable[[str], str], cache_dir=".cache") -> None:
         self._translate = translator
-        self.cache = plyvel.DB(cache_dir, create_if_missing=True)
+        # make sure cache dir exists
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
+        conn = sqlite3.connect(cache_dir + "/cache.sqlite")
+        # create table if not exists
+        conn.cursor().execute(
+            "create table if not exists cache (key text primary key, value text)"
+        )
+        self.cache = conn
+
+    def get(self, key: str) -> str:
+        result = (
+            self.cache.cursor()
+            .execute("select (value) from cache where key = ?", (key,))
+            .fetchone()
+        )
+        return result[0] if result else None
+
+    def put(self, key: str, val: str):
+        self.cache.cursor().execute(
+            "insert into cache (key, value) values (?, ?)", (key, val)
+        )
+        self.cache.commit()
 
     def translate(self, text: str) -> str:
         """
@@ -89,14 +111,14 @@ class CachedTranslator:
         """
         start_time = time.time()
         logger.debug(">>> [%s]", text)
-        cachekey = sha256(text.encode()).hexdigest().encode()
-        cached = self.cache.get(cachekey)
+        cachekey = sha256(text.encode()).hexdigest()
+        cached = self.get(cachekey)
         if cached:
-            decoded = cached.decode()
+            decoded = cached
             logger.debug("<-- [%s]", decoded)
             return decoded
         translated = self._translate(text)
-        self.cache.put(cachekey, translated.encode())
+        self.put(cachekey, translated)
         cost_time = time.time() - start_time
         logger.debug("<<< [%s] [cost %f.2s]", translated, cost_time)
         return translated
