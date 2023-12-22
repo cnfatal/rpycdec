@@ -13,6 +13,7 @@ import re
 import sqlite3
 import struct
 import time
+import zipfile
 import zlib
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
@@ -578,6 +579,64 @@ def decompile(input_path, output_path=None):
             os.path.join(input_path, filename),
             os.path.join(output_path, filename.removesuffix("c")),
         )
+
+
+class DummyClass(object):
+    """
+    Dummy class for unpickling.
+    """
+
+    state = None
+
+    def append(self, value):
+        if self.state is None:
+            self.state = []
+        self.state.append(value)
+
+    def __getitem__(self, key):
+        return self.__dict__[key]
+
+    def __eq__(self, __value: object) -> bool:
+        pass
+
+    def __setitem__(self, key, value):
+        self.__dict__[key] = value
+
+    def __getstate__(self):
+        if self.state is not None:
+            return self.state
+        return self.__dict__
+
+    def __setstate__(self, state):
+        if isinstance(state, dict):
+            self.__dict__ = state
+        else:
+            self.state = state
+
+
+class GenericUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        if module.startswith("store") or module.startswith("renpy"):
+            return type(name, (DummyClass,), {"__module__": module})
+        return super().find_class(module, name)
+
+
+def update_save(filename, update: Callable[[object], object] = lambda x: x):
+    """
+    decode renpy save file and update it with update function
+    """
+    with zipfile.ZipFile(filename, "r") as file:
+        logdata = file.read("log")
+    data = GenericUnpickler(io.BytesIO(logdata)).load()
+    data = update(data)
+    pickledata = pickle.dumps(data)
+    with zipfile.ZipFile(filename, "r") as original_zip:
+        with zipfile.ZipFile(filename + "_patched", "w") as new_zip:
+            for item in original_zip.infolist():
+                if item.filename != "log":
+                    new_zip.write(item, original_zip.read(item.filename))
+                else:
+                    new_zip.write("log", pickledata)
 
 
 def main():
