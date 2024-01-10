@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling","hatch-vcs"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "rpycdec"
-authors = [{ name = "cnfatl", email = "cnfatal@gmail.com" }]
+authors = [{ name = "cnfatal", email = "cnfatal@gmail.com" }]
 description = "A tool to decrypt .rpyc files"
 readme = "README.md"
 requires-python = ">=3.7"
@@ -15,7 +15,10 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dynamic = ["version"]
-
+dependencies = [
+    "requests",
+    "ratelimit",
+]
 [project.urls]
 "Homepage" = "https://github.com/cnfatal/rpycdec"
 "Bug Tracker" = "https://github.com/cnfatal/rpycdec/issues"
@@ -27,7 +30,7 @@ rpycdec = "rpycdec:main"
 exclude = ["/.github", "/docs"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["renpy", "."]
+packages = ["renpy", "store", "rpycdec.py"]
 
 [tool.hatch.version]
 source = "vcs"

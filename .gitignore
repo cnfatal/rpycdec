@@ -3,7 +3,6 @@
 *.pyo
 *.rpy
 *.rpyc
-*.txt
 __pycache__
 /build
 /dist
