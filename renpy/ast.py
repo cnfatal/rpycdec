@@ -132,18 +132,24 @@ class Say(Node):
         rv = []
         if self.who:
             rv.append(self.who)
-        if self.attributes is not None:
+        if hasattr(self, "who_fast") and self.who_fast:
+            # no thing to do with who_fast, who_fast is False when who is None
+            pass
+        if hasattr(self, "attributes") and self.attributes is not None:
             rv.extend(self.attributes)
-        if self.temporary_attributes:
+        if hasattr(self, "temporary_attributes"):
             rv.append("@")
             rv.extend(self.temporary_attributes)
         rv.append(translation.encode_say_string(self.what))
         # if not self.interact:
-        # rv.append("nointeract")
-        if self.with_:
+        if hasattr(self, "interact") and not self.interact:
+            raise NotImplementedError
+            # whther to add "nointeract" ?
+            rv.append("nointeract")
+        if hasattr(self, "with_") and self.with_:
             rv.append("with")
             rv.append(self.with_)
-        if self.arguments:
+        if hasattr(self, "arguments"):
             rv.append(util.get_code(self.arguments, **kwargs))
         return " ".join(rv)
 

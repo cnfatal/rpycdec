@@ -18,10 +18,11 @@ Install with pip:
 ```sh
 pip install rpycdec
 ```
-or install from source after clone this repo:
+Or run it from local:
 
 ```sh
-pip install .
+pip install pipenv && pipenv install 
+python rpycdec.py
 ```
 
 Decompile a file or directory:
