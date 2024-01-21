@@ -113,7 +113,7 @@ class SLDisplayable(SLBlock):
             pass
         if self.imagemap:
             pass
-        if self.variable:
+        if getattr(self, "variable", None):
             pass
         # default_keywords
         # if self.default_keywords:

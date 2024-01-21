@@ -28,7 +28,6 @@ class Node(object):
         "filename",
         "linenumber",
         "next",
-        "statement_start",
     ]
 
 
@@ -132,24 +131,23 @@ class Say(Node):
         rv = []
         if self.who:
             rv.append(self.who)
-        if hasattr(self, "who_fast") and self.who_fast:
+        if getattr(self, "who_fast", None):
             # no thing to do with who_fast, who_fast is False when who is None
             pass
-        if hasattr(self, "attributes") and self.attributes is not None:
+        if getattr(self, "attributes", None):
             rv.extend(self.attributes)
-        if hasattr(self, "temporary_attributes"):
+        if getattr(self, "temporary_attributes", None):
             rv.append("@")
             rv.extend(self.temporary_attributes)
         rv.append(translation.encode_say_string(self.what))
         # if not self.interact:
-        if hasattr(self, "interact") and not self.interact:
-            raise NotImplementedError
-            # whther to add "nointeract" ?
+        if not getattr(self, "interact", None):
+            # penelope "" nointeract
             rv.append("nointeract")
-        if hasattr(self, "with_") and self.with_:
+        if getattr(self, "with_", None):
             rv.append("with")
             rv.append(self.with_)
-        if hasattr(self, "arguments"):
+        if getattr(self, "arguments", None):
             rv.append(util.get_code(self.arguments, **kwargs))
         return " ".join(rv)
 
@@ -430,16 +428,6 @@ class Return(Node):
 
 
 class Menu(Node):
-    __slots__ = [
-        "items",
-        "set",
-        "with_",
-        "has_caption",
-        "arguments",
-        "item_arguments",
-        "rollback",
-    ]
-
     # https://www.renpy.org/doc/html/menus.html#in-game-menus
     def get_code(self, **kwargs) -> str:
         """
@@ -457,28 +445,29 @@ class Menu(Node):
                 jump go_to_jail
         """
         start = "menu"
-        if self.statement_start:
+        if getattr(self, "statement_start", None):
             if isinstance(self.statement_start, Label):
                 start += f" {self.statement_start.name}"
-        if self.arguments:
+        if getattr(self, "arguments", None):
             start += f" {util.get_code(self.arguments,**kwargs)}"
-        if self.has_caption:
+        if getattr(self, "has_caption", None):
             pass
         if self.items or self.set or self.with_:
             start += ":"
         rv = [start]
         if self.with_:
             rv.append(util.indent(f"with {self.with_}"))
-        if self.statement_start and not isinstance(self.statement_start, (Label, Menu)):
-            if not self.has_caption:
-                raise NotImplementedError
-            rv.append(util.indent(util.get_code(self.statement_start, **kwargs)))
+        if getattr(self, "statement_start", None):
+            if not isinstance(self.statement_start, (Label, Menu)):
+                if not getattr(self, "has_caption", None):
+                    raise NotImplementedError
+                rv.append(util.indent(util.get_code(self.statement_start, **kwargs)))
         if self.set:
             rv.append(util.indent(f"set {self.set}"))
         for idx, (say, cond, expr) in enumerate(self.items):
-            argument = self.item_arguments[idx]
             start = translation.encode_say_string(say)
-            if argument:
+            if getattr(self, "item_arguments", None):
+                argument = self.item_arguments[idx]
                 start += f"{util.get_code(argument,**kwargs)}"
             if cond and cond != "True":
                 start += f" if {util.get_code(cond,**kwargs)}"
@@ -662,7 +651,7 @@ class Translate(Node):
 
     def get_code(self, **kwargs) -> str:
         start = f"translate {self.language} {self.identifier}"
-        if self.alternate:
+        if getattr(self, "alternate", None):
             start += f" alternate {self.alternate}"
         if self.block:
             start += ":"
@@ -717,11 +706,14 @@ class TranslateBlock(Node):
     ]
 
     def get_code(self, **kwargs) -> str:
-        raise NotImplementedError
+        return util.get_code(self.block, **kwargs)
 
 
 class TranslateEarlyBlock(TranslateBlock):
-    pass
+    def get_code(self, **kwargs) -> str:
+        for item in self.block:
+            kwargs.update({"language": self.language})
+            return util.get_code(item, **kwargs)
 
 
 class Style(Node):

@@ -110,7 +110,13 @@ class Choice(Statement):
 
 
 class RawTime(RawStatement):
-    pass
+    # https://www.renpy.org/doc/html/atl.html#time-statement
+    #
+    # atl_time ::=  "time" (simple_expression)?
+    def get_code(self, **kwargs) -> str:
+        if getattr(self, "time", None):
+            return f"time {self.time}"
+        return "time"
 
 
 class Time(Statement):
