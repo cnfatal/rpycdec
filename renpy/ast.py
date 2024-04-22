@@ -322,11 +322,29 @@ class Show(Node):
 
 
 class ShowLayer(Node):
+    """
+    show layer <name> at a,b,c :
+        atl
+    """
+
     __slots__ = [
         "layer",
         "at_list",
         "atl",
     ]
+
+    def get_code(self, **kwargs) -> str:
+        start = "show layer"
+        if hasattr(self, "layer") and self.layer:
+            start += f" {self.layer}"
+        if hasattr(self, "at_list") and self.at_list:
+            start += f" at {util.get_code(self.at_list,**kwargs)}"
+        if hasattr(self, "atl") and self.atl:
+            start += ":"
+        rv = [start]
+        if hasattr(self, "atl") and self.atl:
+            rv.append(util.indent(util.get_code(self.atl)))
+        return "\n".join(rv)
 
 
 class Scene(Node):
@@ -785,14 +803,18 @@ class Camera(Node):
     camera background:
         perspective True
 
+    camera master at a,b,c:
+        atl
     """
+
+    __slots__ = ["layer", "at_list", "atl"]
 
     def get_code(self, **kwargs) -> str:
         start = "camera"
         if self.layer:
             start += f" {self.layer}"
         if self.at_list:
-            raise NotImplementedError
+            start += f" at {util.get_code(self.at_list,**kwargs)}"
         if self.atl:
             start += ":"
         rv = [start]
