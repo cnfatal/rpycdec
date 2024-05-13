@@ -1,33 +1,18 @@
-"""
-Module decompile rpyc files. 
-"""
-
-
-import argparse
-import io
 import logging
 import os
-import pickle
-import pickletools
 import re
 import sqlite3
-import struct
 import time
-import zipfile
-import zlib
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from typing import Callable
-
 import requests
 from ratelimit import limits, sleep_and_retry
-
 import renpy.ast
 import renpy.sl2.slast
 import renpy.util
+from rpycdec import utils, stmts
 
-# A string at the start of each rpycv2 file.
-RPYC2_HEADER = b"RENPY RPC2"
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +62,7 @@ class CachedTranslator:
     Use local disk cache to avoid translate same text again and again.
     """
 
-    cache = {}
+    cache: sqlite3.Connection
     _translate: Callable[[str], str]
 
     def __init__(self, translator: Callable[[str], str], cache_dir=".cache") -> None:
@@ -98,7 +83,7 @@ class CachedTranslator:
             .execute("select (value) from cache where key = ?", (key,))
             .fetchone()
         )
-        return result[0] if result else None
+        return result[0] if result else ""
 
     def put(self, key: str, val: str):
         self.cache.cursor().execute(
@@ -270,13 +255,6 @@ class CodeTranslator:
         return text
 
 
-def noop_translator(text: str) -> str:
-    """
-    translate that do nothing but return text self
-    """
-    return text
-
-
 def walk_node(node, callback, **kwargs):
     """
     callback: (kind, label, lang, old, new) -> translated
@@ -334,7 +312,7 @@ def _do_collect(meta: tuple, accept_lang: str, into: dict) -> str:
     return val
 
 
-def _walk_callback(stmts, callback) -> str:
+def get_code_with_callback(stmts, callback) -> str:
     return renpy.util.get_code(
         stmts,
         modifier=lambda node, **kwargs: walk_node(node, callback, **kwargs),
@@ -348,28 +326,25 @@ def default_translator() -> Callable[[str], str]:
     return CachedTranslator(GoogleTranslator().translate).translate
 
 
-def translate_files(
+def _process_files(
     base_dir: str,
     files: list[str],
-    translator: Callable[[str], str],
+    translator: Callable[[str], str]=default_translator(),
     include_tl_lang: str = "english",
     concurent: int = 0,
 ) -> dict[str, str]:
     """
     translate files and return a map of filename and code
     """
-    if not translator:
-        logger.info("using default translator")
-        translator = default_translator()
     stmts_dict = {}
     translations_dict = {}
     # load translations
     for filename in files:
         logger.info("loading %s", filename)
-        stmts = load_file(os.path.join(base_dir, filename))
-        stmts_dict[filename] = stmts
-        _walk_callback(
-            stmts,
+        loaded_stmts = stmts.load_file(os.path.join(base_dir, filename))
+        stmts_dict[filename] = loaded_stmts
+        get_code_with_callback(
+            loaded_stmts,
             lambda meta: _do_collect(meta, include_tl_lang, translations_dict),
         )
     logger.info("loaded %d translations", len(translations_dict))
@@ -401,10 +376,10 @@ def translate_files(
     # generate code
     code_files = {}
     logger.info("generating code")
-    for filename, stmts in stmts_dict.items():
+    for filename, stmt in stmts_dict.items():
         logger.info("gnerating code for %s", filename)
-        code_files[filename] = _walk_callback(
-            stmts, lambda meta: _do_consume(meta, results_dict)
+        code_files[filename] = get_code_with_callback(
+            stmt, lambda meta: _do_consume(meta, results_dict)
         )
     return code_files
 
@@ -412,7 +387,7 @@ def translate_files(
 def translate(
     input_path,
     output_path=None,
-    translator: Callable[[str], str] = None,
+    translator: Callable[[str], str] = default_translator(),
     include_tl_lang: str = "english",
     concurent: int = 0,
 ):
@@ -422,19 +397,19 @@ def translate(
     if os.path.isfile(input_path):
         if not output_path:
             output_path = input_path.removesuffix("c")
-        (_, code) = translate_files(
+        (_, code) = _process_files(
             "",
             [input_path],
             translator=translator,
         ).popitem()
         logger.info("writing %s", output_path)
-        write_file(output_path, code)
+        utils.write_file(output_path, code)
         return
 
     if not output_path:
         output_path = input_path
-    matches = match_files(input_path, r".*\.rpym?c$")
-    file_codes = translate_files(
+    matches = utils.match_files(input_path, r".*\.rpym?c$")
+    file_codes = _process_files(
         input_path,
         matches,
         translator=translator,
@@ -444,238 +419,4 @@ def translate(
     for filename, code in file_codes.items():
         output_file = os.path.join(output_path, filename.removesuffix("c"))
         logger.info("writing %s", output_file)
-        write_file(output_file, code)
-
-
-def write_file(filename: str, data: str):
-    """
-    write data to file
-    """
-    if not os.path.exists(os.path.dirname(filename)):
-        os.makedirs(os.path.dirname(filename))
-    with open(filename, "w", encoding="utf-8") as file:
-        file.write(data)
-
-
-def match_files(base_dir: str, pattern: str) -> list[str]:
-    """
-    match files in dir with regex pattern
-
-    Parameters
-    ----------
-    base_dir : str
-        directory to find in
-    pattern : str
-        regex pattern
-
-    Returns
-    -------
-    list[str]
-        matched filenames relative to base_dir
-    """
-
-    if pattern == "":
-        pattern = ".*"
-    results = []
-    matched = re.compile(pattern)
-    for root, _, files in os.walk(base_dir):
-        for filename in files:
-            filename = os.path.relpath(os.path.join(root, filename), base_dir)
-            if matched.match(filename):
-                results.append(filename)
-    return results
-
-
-def read_rpyc_data(file: io.FileIO, slot):
-    """
-    Reads the binary data from `slot` in a .rpyc (v1 or v2) file. Returns
-    the data if the slot exists, or None if the slot does not exist.
-    """
-    file.seek(0)
-    header_data = file.read(1024)
-    # Legacy path.
-    if header_data[: len(RPYC2_HEADER)] != RPYC2_HEADER:
-        if slot != 1:
-            return None
-        file.seek(0)
-        data = file.read()
-        return zlib.decompress(data)
-    # RPYC2 path.
-    pos = len(RPYC2_HEADER)
-    while True:
-        header_slot, start, length = struct.unpack("III", header_data[pos : pos + 12])
-        if slot == header_slot:
-            break
-        if header_slot == 0:
-            return None
-        pos += 12
-    file.seek(start)
-    data = file.read(length)
-    return zlib.decompress(data)
-
-
-def load_file(filename, disasm: bool = False) -> renpy.ast.Node:
-    """
-    load renpy code from rpyc file and return ast tree.
-    """
-    ext = os.path.splitext(filename)[1]
-    if ext in [".rpy", ".rpym"]:
-        raise NotImplementedError(
-            "unsupport for pase rpy file or use renpy.parser.parse() in renpy's SDK"
-        )
-    if ext in [".rpyc", ".rpymc"]:
-        with open(filename, "rb") as file:
-            for slot in [1, 2]:
-                bindata = read_rpyc_data(file, slot)
-                if bindata:
-                    if disasm:
-                        disasm_file = filename + ".disasm"
-                        with open(disasm_file, "w", encoding="utf-8") as disasm_f:
-                            pickletools.dis(bindata, out=disasm_f)
-                    try:
-                        _, stmts = pickle.loads(bindata)
-                    except Exception as e:
-                        logger.error("load %s failed: %s", filename, e)
-                        raise e
-                    return stmts
-                file.seek(0)
-    return None
-
-
-def decompile_file(input_file, output_file=None):
-    """
-    decompile rpyc file into rpy file and write to output.
-    """
-    if not output_file:
-        output_file = input_file.removesuffix("c")
-    if not output_file.endswith(".rpy"):
-        output_file = os.path.join(
-            output_file, os.path.basename(input_file).removesuffix("c")
-        )
-    stmts = load_file(input_file)
-    code = renpy.util.get_code(stmts)
-    logger.info("writing %s", output_file)
-    write_file(output_file, code)
-
-
-def decompile(input_path, output_path=None):
-    """
-    decompile rpyc file or directory into rpy
-
-    Parameters
-    ----------
-    input_path : str
-        path to rpyc file or directory contains rpyc files
-    output_path : str, optional
-        output path, by default it's same path of input_path.
-    """
-    if not os.path.isdir(input_path):
-        decompile_file(input_path, output_path)
-        return
-    if not output_path:
-        output_path = input_path
-    for filename in match_files(input_path, r".*\.rpym?c$"):
-        decompile_file(
-            os.path.join(input_path, filename),
-            os.path.join(output_path, filename.removesuffix("c")),
-        )
-
-
-class DummyClass(object):
-    """
-    Dummy class for unpickling.
-    """
-
-    state = None
-
-    def append(self, value):
-        if self.state is None:
-            self.state = []
-        self.state.append(value)
-
-    def __getitem__(self, key):
-        return self.__dict__[key]
-
-    def __eq__(self, __value: object) -> bool:
-        pass
-
-    def __setitem__(self, key, value):
-        self.__dict__[key] = value
-
-    def __getstate__(self):
-        if self.state is not None:
-            return self.state
-        return self.__dict__
-
-    def __setstate__(self, state):
-        if isinstance(state, dict):
-            self.__dict__ = state
-        else:
-            self.state = state
-
-
-class GenericUnpickler(pickle.Unpickler):
-    def find_class(self, module, name):
-        if module.startswith("store") or module.startswith("renpy"):
-            return type(name, (DummyClass,), {"__module__": module})
-        return super().find_class(module, name)
-
-
-def update_save(filename, update: Callable[[object], object] = lambda x: x):
-    """
-    decode renpy save file and update it with update function
-    """
-    with zipfile.ZipFile(filename, "r") as file:
-        logdata = file.read("log")
-    data = GenericUnpickler(io.BytesIO(logdata)).load()
-    data = update(data)
-    pickledata = pickle.dumps(data)
-    with zipfile.ZipFile(filename, "r") as original_zip:
-        with zipfile.ZipFile(filename + "_patched", "w") as new_zip:
-            for item in original_zip.infolist():
-                if item.filename != "log":
-                    new_zip.write(item, original_zip.read(item.filename))
-                else:
-                    new_zip.write("log", pickledata)
-
-
-def main():
-    """
-    command line tool entry.
-    """
-    logging.basicConfig(level=logging.INFO)
-    argparser = argparse.ArgumentParser()
-    argparser.add_argument(
-        "--concurent", "-n", type=int, default=0, help="concurent translate"
-    )
-    argparser.add_argument(
-        "--include-lang",
-        "-i",
-        default=None,
-        help="add items in tl/<lang> dir to translations",
-    )
-    argparser.add_argument(
-        "--verbose", "-v", action="store_true", help="verbose output"
-    )
-    argparser.add_argument(
-        "--translate", action="store_true", help="decompile and translate"
-    )
-    argparser.add_argument("src", nargs=1, help="rpyc file or directory")
-    argparser.add_argument("dest", nargs="?", help="output file or directory")
-    args = argparser.parse_args()
-    logging.basicConfig(level=logging.INFO)
-    if args.verbose:
-        logger.setLevel(logging.DEBUG)
-    if args.translate:
-        translate(
-            args.src[0],
-            args.dest,
-            concurent=args.concurent,
-            include_tl_lang=args.include_lang,
-        )
-    else:
-        decompile(args.src[0], args.dest)
-
-
-if __name__ == "__main__":
-    main()
+        utils.write_file(output_file, code)

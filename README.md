@@ -11,46 +11,40 @@ Another reason to create a fake "renpy" package is that we can separate code gen
 
 The most difficult part is generating the rpy file from AST. Different renpy version has different AST structure also different grammar.
 
-## Usage
+## Install
 
 Install with pip:
 
 ```sh
 pip install rpycdec
 ```
-Or run it from local:
+
+Or install from source:
 
 ```sh
-pip install pipenv && pipenv install 
-python rpycdec.py
+git clone https://github.com/cnfatal/rpycdec.git
+cd rpycdec
+pip install .
 ```
 
-Decompile a file or directory:
+## Usage
+
+Decompile a file:
 
 ```sh
-rpycdec [--force] <path to rpyc file or dir>
-```
-
-Decompile and translate a file or directory:
-
-```sh
-rpycdec --translate <path to rpyc file or dir>
+rpycdec <path to rpyc file or dir>
 ```
 
 ### Library usage
 
 ```python
-import rpycdec
+from rpycdec import decompile, translate
 
-rpycdec.decompile(filename)
-```
+# decompile a file
+decompile(input_file, output_file)
 
-## Development  
-
-Use pipenv to manage dependencies:
-
-```sh
-pipenv install --dev
+# decompile and translate a file
+translate(input_file, output_file)
 ```
 
 ## Contributing

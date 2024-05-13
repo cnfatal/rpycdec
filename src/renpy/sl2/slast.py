@@ -152,7 +152,35 @@ class SLIf(SLNode):
 
 
 class SLShowIf(SLNode):
-    pass
+    """
+    https://www.renpy.org/doc/html/screens.html#showif-statement
+
+    showif n == 3:
+        text "Three" size 100 at cd_transform
+    elif n == 2:
+        text "Two" size 100 at cd_transform
+    elif n == 1:
+        text "One" size 100 at cd_transform
+    else:
+        text "Liftoff!" size 100 at cd_transform
+    """
+
+    def get_code(self, **kwargs) -> str:
+        rv = []
+        for index, (cond, body) in enumerate(self.entries):
+            body_code = util.get_code(body, **kwargs)
+            if not body_code:
+                body_code = "pass"
+            body_code = util.indent(body_code)
+            if index == 0:
+                rv.append(f"showif {cond}:\n{body_code}")
+                continue
+            if cond and cond != "True":
+                rv.append(f"elif {cond}:\n{body_code}")
+            else:
+                rv.append(f"else:\n{body_code}")
+                break
+        return "\n".join(rv)
 
 
 class SLFor(SLBlock):

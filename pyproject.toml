@@ -7,7 +7,7 @@ name = "rpycdec"
 authors = [{ name = "cnfatal", email = "cnfatal@gmail.com" }]
 description = "A tool to decrypt .rpyc files"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Utilities",
@@ -30,7 +30,7 @@ rpycdec = "rpycdec:main"
 exclude = ["/.github", "/docs"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["renpy", "store", "rpycdec.py"]
+packages = ["src/rpycdec","src/renpy", "src/store"]
 
 [tool.hatch.version]
 source = "vcs"
