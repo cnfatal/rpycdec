@@ -6,8 +6,9 @@ def write_file(filename: str, data: str):
     """
     write data to file
     """
-    if not os.path.exists(os.path.dirname(filename)):
-        os.makedirs(os.path.dirname(filename))
+    dir = os.path.dirname(filename)
+    if dir and not os.path.exists(dir):
+        os.makedirs(dir)
     with open(filename, "w", encoding="utf-8") as file:
         file.write(data)
 

@@ -23,12 +23,7 @@ def get_imspec_name(imspec) -> str:
 
 
 class Node(object):
-    __slots__ = [
-        "name",
-        "filename",
-        "linenumber",
-        "next",
-    ]
+    pass
 
 
 class ParameterInfo(object):
@@ -115,17 +110,6 @@ class Scry(object):
 
 
 class Say(Node):
-    __slots__ = [
-        "who",
-        "who_fast",
-        "what",
-        "with_",
-        "interact",
-        "attributes",
-        "arguments",
-        "temporary_attributes",
-        "rollback",
-    ]
 
     def get_code(self, **kwargs) -> str:
         rv = []
@@ -216,11 +200,6 @@ class Python(Node):
 
 
 class EarlyPython(Node):
-    __slots__ = [
-        "hide",
-        "code",
-        "store",
-    ]
 
     def get_code(self, **kwargs) -> str:
         """
@@ -247,11 +226,6 @@ class EarlyPython(Node):
 
 
 class Image(Node):
-    _filds = [
-        "imgname",
-        "code",
-        "atl",
-    ]
 
     def get_code(self, **kwargs) -> str:
         """
@@ -303,10 +277,6 @@ class Transform(Node):
 
 
 class Show(Node):
-    __slots__ = [
-        "imspec",
-        "atl",
-    ]
 
     def get_code(self, **kwargs) -> str:
         start = "show"
@@ -327,12 +297,6 @@ class ShowLayer(Node):
         atl
     """
 
-    __slots__ = [
-        "layer",
-        "at_list",
-        "atl",
-    ]
-
     def get_code(self, **kwargs) -> str:
         start = "show layer"
         if hasattr(self, "layer") and self.layer:
@@ -348,11 +312,6 @@ class ShowLayer(Node):
 
 
 class Scene(Node):
-    __slots__ = [
-        "imspec",
-        "layer",
-        "atl",
-    ]
 
     def get_code(self, **kwargs) -> str:
         start = "scene"
@@ -371,9 +330,6 @@ class Scene(Node):
 
 
 class Hide(Node):
-    __slots__ = [
-        "imspec",
-    ]
 
     def get_code(self, **kwargs) -> str:
         start = "hide"
@@ -384,10 +340,6 @@ class Hide(Node):
 
 
 class With(Node):
-    __slots__ = [
-        "expr",
-        "paired",
-    ]
 
     def get_code(self, **kwargs) -> str:
         start = "with"
@@ -399,11 +351,6 @@ class With(Node):
 
 
 class Call(Node):
-    __slots__ = [
-        "label",
-        "arguments",
-        "expression",
-    ]
 
     # https://www.renpy.org/doc/html/label.html#call-statement
     def get_code(self, **kwargs) -> str:
@@ -429,9 +376,6 @@ class Call(Node):
 
 
 class Return(Node):
-    __slots__ = [
-        "expression",
-    ]
 
     def __new__(cls, *args, **kwargs):
         self = Node.__new__(cls)
@@ -486,7 +430,9 @@ class Menu(Node):
             start = translation.encode_say_string(say)
             if getattr(self, "item_arguments", None):
                 argument = self.item_arguments[idx]
-                start += f"{util.get_code(argument,**kwargs)}"
+                # argument may None
+                if argument:
+                    start += f"{util.get_code(argument,**kwargs)}"
             if cond and cond != "True":
                 start += f" if {util.get_code(cond,**kwargs)}"
             if expr:
@@ -498,10 +444,6 @@ class Menu(Node):
 
 
 class Jump(Node):
-    __slots__ = [
-        "target",
-        "expression",
-    ]
 
     def get_code(self, **kwargs) -> str:
         rv = ["jump"]
@@ -521,10 +463,6 @@ class Pass(Node):
 
 
 class While(Node):
-    __slots__ = [
-        "condition",
-        "block",
-    ]
     """
     https://www.renpy.org/doc/html/conditional.html#while-statement
 
@@ -548,7 +486,6 @@ class While(Node):
 
 
 class If(Node):
-    __slots__ = ["entries"]
 
     def get_code(self, **kwargs) -> str:
         rv = []
@@ -585,9 +522,7 @@ class UserStatement(Node):
 
 
 class PostUserStatement(Node):
-    __slots__ = [
-        "parent",
-    ]
+    pass
 
 
 class StoreNamespace(object):
@@ -601,13 +536,6 @@ define -2 gui.accent_color = '#ffdd1e'
 
 
 class Define(Node):
-    __slots__ = [
-        "varname",
-        "code",
-        "store",
-        "index",
-        "operator",
-    ]
 
     def get_code(self, **kwargs) -> str:
         start = "define"
@@ -626,11 +554,6 @@ default_statements = []
 
 
 class Default(Node):
-    __slots__ = [
-        "varname",
-        "code",
-        "store",
-    ]
 
     def get_code(self, **kwargs) -> str:
         varname = self.varname
@@ -643,22 +566,12 @@ class Default(Node):
 
 # https://www.renpy.org/doc/html/screens.html#screen-language
 class Screen(Node):
-    __slots__ = [
-        "screen",
-    ]
 
     def get_code(self, **kwargs) -> str:
         return util.get_code(self.screen, **kwargs)
 
 
 class Translate(Node):
-    __slots__ = [
-        "identifier",
-        "alternate",
-        "language",
-        "block",
-        "after",
-    ]
     """
     translate arabic python:
         gui.REGULAR_FONT = "DejaVuSans.ttf"
@@ -687,13 +600,6 @@ class EndTranslate(Node):
 
 
 class TranslateString(Node):
-    __slots__ = [
-        "language",
-        "old",
-        "new",
-        "newloc",
-    ]
-
     """
     https://www.renpy.org/doc/html/translating_renpy.html#language-specific-translations
 
@@ -711,17 +617,10 @@ class TranslateString(Node):
 
 
 class TranslatePython(Node):
-    __slots__ = [
-        "language",
-        "code",
-    ]
+    pass
 
 
 class TranslateBlock(Node):
-    __slots__ = [
-        "block",
-        "language",
-    ]
 
     def get_code(self, **kwargs) -> str:
         return util.get_code(self.block, **kwargs)
@@ -735,16 +634,6 @@ class TranslateEarlyBlock(TranslateBlock):
 
 
 class Style(Node):
-    __slots__ = [
-        "style_name",
-        "parent",
-        "properties",
-        "clear",
-        "take",
-        "delattr",
-        "variant",
-    ]
-
     """
     # https://www.renpy.org/doc/html/style.html#defining-styles-style-statement
     # Creates a new style, inheriting from default.
@@ -789,10 +678,7 @@ class Style(Node):
 
 
 class Testcase(Node):
-    __slots__ = [
-        "label",
-        "test",
-    ]
+    pass
 
 
 class Camera(Node):
@@ -806,8 +692,6 @@ class Camera(Node):
     camera master at a,b,c:
         atl
     """
-
-    __slots__ = ["layer", "at_list", "atl"]
 
     def get_code(self, **kwargs) -> str:
         start = "camera"

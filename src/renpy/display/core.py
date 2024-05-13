@@ -10,7 +10,7 @@ class EndInteraction(Exception):
 
 
 class absolute(float):
-    __slots__ = []
+    pass
 
 
 class DisplayableArguments(renpyobject.Object):

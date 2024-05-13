@@ -13,11 +13,8 @@ def decompile_file(input_file, output_file=None):
     decompile rpyc file into rpy file and write to output.
     """
     if not output_file:
-        output_file = input_file.removesuffix("c")
-    if not output_file.endswith(".rpy"):
-        output_file = os.path.join(
-            output_file, os.path.basename(input_file).removesuffix("c")
-        )
+        name, _ = os.path.splitext(input_file)
+        output_file = f"{name}.rpy"
     stmt = stmts.load_file(input_file)
     try:
         code = renpy.util.get_code(stmt)

@@ -86,6 +86,7 @@ def load(data: io.BufferedReader) -> Node | None:
             bindata = read_rpyc_data(data, slot)
         except Exception as e:
             logger.warning(f"Failed to read slot {slot}: {e}")
+            data.seek(0)
             continue
         if bindata:
             _, stmts = pickle.loads(bindata)
@@ -102,7 +103,5 @@ def load_file(filename) -> Node | None:
         raise NotImplementedError(
             "unsupport for pase rpy file or use renpy.parser.parse() in renpy's SDK"
         )
-    if ext in [".rpyc", ".rpymc"]:
-        with open(filename, "rb") as file:
-            return load(file)
-    raise Exception("invalid rpyc file")
+    with open(filename, "rb") as file:
+        return load(file)
