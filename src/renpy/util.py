@@ -26,11 +26,11 @@ def get_code_properties(props: tuple | dict, newline: bool = False) -> str:
     list = []
     if isinstance(props, dict):
         props = props.items()
-    for k, v in props:
-        if v is None:
-            list.append(k)
+    for prop in props:
+        if prop[-1] is None:
+            list.append(" ".join(prop[:-1]))
         else:
-            list.append(f"{k} {v}")
+            list.append(" ".join(prop))
     return ("\n" if newline else " ").join(list)
 
 
