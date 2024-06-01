@@ -31,6 +31,7 @@ class Block(Statement):
 
 class RawMultipurpose(RawStatement):
     def get_code(self, **kwargs) -> str:
+        rv = ""
         properties = self.properties.copy()
         if self.duration != "0":
             properties = [(self.warper, self.duration)] + properties
@@ -41,12 +42,16 @@ class RawMultipurpose(RawStatement):
                 v = f"with {v}"
             properties.append((k, v))
         if self.splines:
-            raise NotImplementedError
+            for name, exprs in self.splines:
+                rv += f" {name}"
+                for expr in exprs:
+                    rv += f" knot {expr}"
         if self.warp_function:
             raise NotImplementedError
         if self.revolution:
             raise NotImplementedError
-        return util.get_code_properties(properties)
+        property = util.get_code_properties(properties)
+        return property + rv
 
 
 class RawContainsExpr(RawStatement):
