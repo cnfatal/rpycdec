@@ -32,7 +32,13 @@ pip install .
 Decompile a file:
 
 ```sh
-rpycdec <path to rpyc file or dir>
+rpycdec decompile <path to rpyc file or dir>
+```
+
+Extract RPA archive
+
+```sh
+rpycdec unrpa <path to rpa file>
 ```
 
 ### Library usage
@@ -42,6 +48,9 @@ from rpycdec import decompile, translate
 
 # decompile a file
 decompile(input_file, output_file)
+
+# extract RPA archive
+extract_rpa(file_steam, output_dir)
 
 # decompile and translate a file
 translate(input_file, output_file)
@@ -53,7 +62,7 @@ Pull requests are welcome. For major changes, please open an issue first to disc
 
 ## FAQ
 
-- **Q: It always raise pickle `import ** \nModuleNotFoundError: No module named '***'` error.**
+- **Q: It always raise pickle `import ** \nModuleNotFoundError: No module named '**\*'` error.**
 
   A: It's because the our fake packages("renpy","store") is not contains the object you want to decompile. Please open an issue and tell us the renpy version and the rpyc file you want to decompile. Join our telegram group to get help also be better.
 

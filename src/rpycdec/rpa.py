@@ -4,11 +4,11 @@ import zlib
 from io import BufferedIOBase
 
 
-def read_str(data: BufferedIOBase, eol: int = 0x00) -> bytes:
+def read_util(data: BufferedIOBase, util: int = 0x00) -> bytes:
     content = bytearray()
     while True:
         c = data.read(1)
-        if c[0] == eol:
+        if c[0] == util:
             break
         content += c
     return content
@@ -22,16 +22,13 @@ def to_start(start: str | None | bytes) -> bytes:
     return start.encode("latin-1")
 
 
-def extract_rpa(r: BufferedIOBase, dir: str):
-    header = read_str(r).decode("utf-8")
-    lines = header.splitlines()
-    metadata = lines[0].split()
-    magic, metadata = metadata[0], metadata[1:]
-    index_offset, metadata = int(metadata[0], 16), metadata[1:]
-    if magic == "RPA-3.0":
-        key, metadata = int(metadata[0], 16), metadata[1:0]
-    else:
-        raise Exception("magic %s not supported" % magic)
+def extract_rpa(r: BufferedIOBase, dir: str | None = None):
+    magic = read_util(r, 0x20)
+    if magic != b"RPA-3.0":
+        print("Not a Ren'Py archive.")
+        return
+    index_offset = int(read_util(r, 0x20), 16)
+    key = int(read_util(r, 0x0A).decode(), 16)
 
     # read index
     r.seek(index_offset)
@@ -42,6 +39,8 @@ def extract_rpa(r: BufferedIOBase, dir: str):
             for offset, dlen, *left in v
         ]
 
+    if not dir:
+        dir = os.path.splitext(r.name)[0]
     for filename, entries in index.items():
         data = bytearray()
         for offset, dlen, start in entries:
