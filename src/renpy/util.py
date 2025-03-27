@@ -77,7 +77,7 @@ def get_code(node, **kwargs) -> str:
             # TODO: it's a hack, fix it later
             if (
                 isinstance(item, ast.Say)
-                and not item.interact
+                and not attr(item, "interact")
                 and isinstance(next, ast.Menu)
             ):
                 continue
@@ -85,10 +85,13 @@ def get_code(node, **kwargs) -> str:
                 if next.statement_start == item:
                     continue  # skip label before menu
             if isinstance(item, ast.With):
-                if item.paired:
+                if attr(item, "paired"):
                     continue
                 prevprev = node[idx - 2] if idx - 2 >= 0 else None
-                if isinstance(prevprev, ast.With) and prevprev.paired == item.expr:
+                if (
+                    isinstance(prevprev, ast.With)
+                    and attr(prevprev, "paired") == item.expr
+                ):
                     rv[-1] = __append_first_line(rv[-1], f" with {item.expr}")
                     continue
             if isinstance(item, ast.Label) and isinstance(prev, ast.Call):
@@ -121,3 +124,10 @@ def get_block_code(node, **kwargs) -> str:
     else:
         raise NotImplementedError
     return "\n".join(lines)
+
+
+def attr(item, *candidates: str) -> str:
+    for candidate in candidates:
+        if hasattr(item, candidate):
+            return getattr(item, candidate)
+    return None

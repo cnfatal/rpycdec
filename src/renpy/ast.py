@@ -1,8 +1,9 @@
-from . import translation
-from . import util
+from . import translation, util
 
 
 def parse_store_name(name: str) -> str:
+    if not name:
+        return ""
     if name == "store":
         return ""
     return name.lstrip("store.")
@@ -113,8 +114,9 @@ class Say(Node):
 
     def get_code(self, **kwargs) -> str:
         rv = []
-        if self.who:
-            rv.append(self.who)
+        who = util.attr(self, "who")
+        if who:
+            rv.append(who)
         if getattr(self, "who_fast", None):
             # no thing to do with who_fast, who_fast is False when who is None
             pass
@@ -163,10 +165,11 @@ class Label(Node):
 
     def get_code(self, **kwargs) -> str:
         start = "label"
-        if self.name:
-            start += f" {self.name}"
-        if self.parameters:
-            start += f"{util.get_code(self.parameters,**kwargs)}"
+        name = util.attr(self, "name", "_name")
+        if name:
+            start += f" {name}"
+        if hasattr(self, "parameters"):
+            start += f"{self.parameters.get_code()}"
         start += ":"  # label always has colon
         rv = [start]
         rv.append(util.indent(f"{util.get_code(self.block, **kwargs)}"))
@@ -183,8 +186,12 @@ class Python(Node):
         $ flag = True
         """
         inner_code = util.get_code(self.code, **kwargs)
-        storename = parse_store_name(self.store)
-        if not storename and not self.hide and len(inner_code.split("\n")) == 1:
+        storename = parse_store_name(util.attr(self, "store"))
+        if (
+            not storename
+            and not util.attr(self, "hide")
+            and len(inner_code.split("\n")) == 1
+        ):
             return f"$ {inner_code}"
         start = "python"
         if storename:
@@ -209,7 +216,7 @@ class EarlyPython(Node):
         $ flag = True
         """
         inner_code = util.get_code(self.code, **kwargs)
-        storename = parse_store_name(self.store)
+        storename = parse_store_name(util.attr(self, "store"))
         if not storename and not self.hide and len(inner_code.split("\n")) == 1:
             return f"$ {inner_code}"
         start = "python early"
@@ -283,10 +290,10 @@ class Show(Node):
         name = get_imspec_name(self.imspec)
         if name:
             start += f" {name}"
-        if self.atl:
+        if util.attr(self, "atl"):
             start += ":"
         rv = [start]
-        if self.atl:
+        if util.attr(self, "atl"):
             rv.append(util.indent(util.get_code(self.atl, **kwargs)))
         return "\n".join(rv)
 
@@ -321,10 +328,10 @@ class Scene(Node):
                 start += f" {name}"
         if self.layer:
             start += f" {self.layer}"
-        if self.atl:
+        if util.attr(self, "atl"):
             start += ":"
         rv = [start]
-        if self.atl:
+        if util.attr(self, "atl"):
             rv.append(util.indent(util.get_code(self.atl, **kwargs)))
         return "\n".join(rv)
 
@@ -343,7 +350,7 @@ class With(Node):
 
     def get_code(self, **kwargs) -> str:
         start = "with"
-        if self.paired:
+        if util.attr(self, "paired"):
             start += f" {util.get_code(self.paired,**kwargs)}"
         if self.expr and self.expr != "None":
             start += f" {util.get_code(self.expr,**kwargs)}"
@@ -447,7 +454,7 @@ class Jump(Node):
 
     def get_code(self, **kwargs) -> str:
         rv = ["jump"]
-        if self.expression and self.expression != True:
+        if util.attr(self, "expression") and self.expression != True:
             rv.append(f" {util.get_code(self.expression, **kwargs)}")
         if self.target:
             rv.append(f" {self.target}")

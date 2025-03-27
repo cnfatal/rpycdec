@@ -10,3 +10,8 @@ class Signature:
 class Parameter:
     def get_code(self, **kwargs) -> str:
         raise NotImplementedError
+
+
+class ArgumentInfo:
+    def get_code(self, **kwargs) -> str:
+        raise NotImplementedError
