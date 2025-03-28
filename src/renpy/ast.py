@@ -140,7 +140,7 @@ class Say(Node):
 
 class Init(Node):
     def get_code(self, **kwargs) -> str:
-        if self.priority == -500:  # default priority ?
+        if self.priority == -500 or self.priority == 0:  # default priority ?
             return util.get_code(self.block, **kwargs)
         start = "init"
         if self.priority:
@@ -168,8 +168,9 @@ class Label(Node):
         name = util.attr(self, "name", "_name")
         if name:
             start += f" {name}"
-        if hasattr(self, "parameters"):
-            start += f"{self.parameters.get_code()}"
+        parameters = util.attr(self, "parameters")
+        if parameters:
+            start += f"{parameters.get_code()}"
         start += ":"  # label always has colon
         rv = [start]
         rv.append(util.indent(f"{util.get_code(self.block, **kwargs)}"))
@@ -414,29 +415,40 @@ class Menu(Node):
                 jump go_to_jail
         """
         start = "menu"
-        if getattr(self, "statement_start", None):
-            if isinstance(self.statement_start, Label):
-                start += f" {self.statement_start.name}"
-        if getattr(self, "arguments", None):
-            start += f" {util.get_code(self.arguments,**kwargs)}"
-        if getattr(self, "has_caption", None):
+        statement_start = util.attr(self, "statement_start")
+        arguments = util.attr(self, "arguments")
+        has_caption = util.attr(self, "has_caption")
+        items, attrset, with_ = (
+            util.attr(self, "items"),
+            util.attr(self, "set"),
+            util.attr(self, "with_"),
+        )
+        item_arguments = util.attr(self, "item_arguments")
+
+        if statement_start:
+            if isinstance(statement_start, Label):
+                start += f" {statement_start.name}"
+        if arguments:
+            start += f" {util.get_code(arguments,**kwargs)}"
+        if has_caption:
             pass
-        if self.items or self.set or self.with_:
+
+        if items or attrset or with_:
             start += ":"
         rv = [start]
-        if self.with_:
-            rv.append(util.indent(f"with {self.with_}"))
-        if getattr(self, "statement_start", None):
-            if not isinstance(self.statement_start, (Label, Menu)):
-                if not getattr(self, "has_caption", None):
+        if with_:
+            rv.append(util.indent(f"with {with_}"))
+        if statement_start:
+            if not isinstance(statement_start, (Label, Menu)):
+                if not has_caption:
                     raise NotImplementedError
-                rv.append(util.indent(util.get_code(self.statement_start, **kwargs)))
-        if self.set:
-            rv.append(util.indent(f"set {self.set}"))
-        for idx, (say, cond, expr) in enumerate(self.items):
+                rv.append(util.indent(util.get_code(statement_start, **kwargs)))
+        if attrset:
+            rv.append(util.indent(f"set {attrset}"))
+        for idx, (say, cond, expr) in enumerate(items):
             start = translation.encode_say_string(say)
-            if getattr(self, "item_arguments", None):
-                argument = self.item_arguments[idx]
+            if item_arguments:
+                argument = item_arguments[idx]
                 # argument may None
                 if argument:
                     start += f"{util.get_code(argument,**kwargs)}"
@@ -453,11 +465,14 @@ class Menu(Node):
 class Jump(Node):
 
     def get_code(self, **kwargs) -> str:
+        expression = util.attr(self, "expression")
+        target = util.attr(self, "target")
+
         rv = ["jump"]
-        if util.attr(self, "expression") and self.expression != True:
-            rv.append(f" {util.get_code(self.expression, **kwargs)}")
-        if self.target:
-            rv.append(f" {self.target}")
+        if expression:
+            rv.append(f" {util.get_code(expression, **kwargs)}")
+        if target:
+            rv.append(f" {target}")
         return "".join(rv)
 
 
@@ -545,9 +560,11 @@ define -2 gui.accent_color = '#ffdd1e'
 class Define(Node):
 
     def get_code(self, **kwargs) -> str:
+        store = util.attr(self, "store")
+
         start = "define"
         varname = self.varname
-        store_name = parse_store_name(self.store)
+        store_name = parse_store_name(store)
         if store_name:
             varname = f"{store_name}.{varname}"
         operator = "="

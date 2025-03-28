@@ -85,7 +85,7 @@ def get_code(node, **kwargs) -> str:
                 if next.statement_start == item:
                     continue  # skip label before menu
             if isinstance(item, ast.With):
-                if attr(item, "paired"):
+                if attr(item, "paired") or not attr(item, "expr"):
                     continue
                 prevprev = node[idx - 2] if idx - 2 >= 0 else None
                 if (

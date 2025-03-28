@@ -1,9 +1,12 @@
+"""Module for decompiling Ren'Py compiled files (.rpyc) back to source code (.rpy)."""
+
 import logging
 import os
-from rpycdec import utils, stmts
+
 import renpy.ast
 import renpy.sl2.slast
 import renpy.util
+from rpycdec import stmts, utils
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +22,10 @@ def decompile_file(input_file, output_file=None):
     try:
         code = renpy.util.get_code(stmt)
     except Exception as e:
-        logger.error(f"decode file {input_file} failed: {e}")
+        logger.error("decode file %s failed: %s", input_file, e)
         raise e
     utils.write_file(output_file, code)
-    logger.info(f"decompile {input_file} -> {output_file}")
+    logger.info("decompile %s -> %s", input_file, output_file)
 
 
 def decompile(input_path, output_path=None):
