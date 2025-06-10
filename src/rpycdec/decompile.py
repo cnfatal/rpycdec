@@ -45,7 +45,11 @@ def decompile(input_path, output_path=None):
     if not output_path:
         output_path = input_path
     for filename in utils.match_files(input_path, r".*\.rpym?c$"):
-        decompile_file(
-            os.path.join(input_path, filename),
-            os.path.join(output_path, filename.removesuffix("c")),
-        )
+        try:
+            decompile_file(
+                os.path.join(input_path, filename),
+                os.path.join(output_path, filename.removesuffix("c")),
+            )
+        except Exception as e:
+            logger.error("decompile file %s failed: %s", filename, e)
+            continue
