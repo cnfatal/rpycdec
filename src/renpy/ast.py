@@ -250,16 +250,16 @@ class Image(Node):
         start = "image"
         if self.imgname:
             start += f" {' '.join(self.imgname)}"
-        if self.code and self.atl:
-            raise NotImplementedError
         if self.code:
             return f"{start} = {util.get_code(self.code,**kwargs)}"
-        if self.atl:
-            start += ":"
-        rv = [start]
-        if self.atl:
-            rv.append(util.indent(f"{util.get_code(self.atl, **kwargs)}"))
-        return "\n".join(rv)
+        atl = util.attr(self, "atl")
+        if atl:
+            rv = [f"{start}:"]
+            rv.append(util.indent(f"{util.get_code(atl, **kwargs)}"))
+            return "\n".join(rv)
+        raise NotImplementedError(
+            f"Image node without code or atl: {self.imgname} {self.code}"
+        )
 
 
 class Transform(Node):
