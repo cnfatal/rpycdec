@@ -78,3 +78,7 @@ class Flatten(Container):
 
 class AlphaMask(Container):
     pass
+
+
+class NearRect(Container):
+    pass

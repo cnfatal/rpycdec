@@ -102,33 +102,31 @@ class SLDisplayable(SLBlock):
         # if not scope  add():
         # if not self.scope:
         # start += "()"
-        if self.positional:
-            start += f" {' '.join(self.positional)}"
+        positional = util.attr(self, "positional")
+        positional = [x for x in positional if x is not None]
+        if positional:
+            start += f" {' '.join(positional)}"
         # unhandled attributes
-        if self.hotspot:
-            pass
-        if self.replaces:
-            pass
-        if self.pass_context:
-            pass
-        if self.imagemap:
-            pass
-        if getattr(self, "variable", None):
-            pass
-        # default_keywords
-        # if self.default_keywords:
-        #     start += f" {util.get_code_keyword(self.default_keywords)}"
+        hotspot = util.attr(self, "hotspot")
+        replaces = util.attr(self, "replaces")
+        pass_context = util.attr(self, "pass_context")
+        imagemap = util.attr(self, "imagemap")
+        variable = util.attr(self, "variable")
+        default_keywords = util.attr(self, "default_keywords")
+        child_or_fixed = util.attr(self, "child_or_fixed")
         # keywords
-        if not self.children:
-            if self.keyword:
-                start += f" {util.get_code_properties(self.keyword)}"
+        keyword = util.attr(self, "keyword")
+        children = util.attr(self, "children")
+        if not children:
+            if keyword:
+                start += f" {util.get_code_properties(keyword)}"
             return start
         # children
         start += ":"
         rv = [start]
-        if self.keyword:
-            rv.append(util.indent(util.get_code_properties(self.keyword, newline=True)))
-        rv.append(util.indent(util.get_code(self.children, **kwargs)))
+        if keyword:
+            rv.append(util.indent(util.get_code_properties(keyword, newline=True)))
+        rv.append(util.indent(util.get_code(children, **kwargs)))
         return "\n".join(rv)
 
 
@@ -195,14 +193,14 @@ class SLFor(SLBlock):
 
     def get_code(self, **kwargs) -> str:
         start = f"for {self.variable} in {self.expression}:"
-        rv = [start]
-        rv.append(util.indent(util.get_code(self.children, **kwargs)))
-        return "\n".join(rv)
+        return util.label_code(start, self.children, **kwargs)
 
 
 class SLPython(SLNode):
     def get_code(self, **kwargs) -> str:
         inner_code = util.get_code(self.code, **kwargs)
+        if not inner_code:
+            return ""
         if len(inner_code.splitlines()) == 1:
             return f"$ {inner_code}"
         return f"python:\n{util.indent(inner_code)}"
@@ -220,7 +218,7 @@ class SLDefault(SLNode):
 
 class SLUse(SLNode):
     def get_code(self, **kwargs) -> str:
-        start = f"use"
+        start = "use"
         if self.target:
             if isinstance(self.target, ast.PyExpr):
                 start += f" expression {util.get_code(self.target, **kwargs)}"
@@ -228,14 +226,11 @@ class SLUse(SLNode):
                 start += f" {self.target}"
         if self.args:
             start += f"{util.get_code(self.args, **kwargs)}"
-        if self.block or self.ast:
-            start += ":"
-        rv = [start]
         if self.block:
-            rv.append(util.indent(util.get_code(self.block, **kwargs)))
+            return util.label_code(start, self.block, **kwargs)
         if self.ast:
-            rv.append(util.indent(util.get_code(self.ast, **kwargs)))
-        return "\n".join(rv)
+            return util.label_code(start, self.ast, **kwargs)
+        return start
 
 
 # https://www.renpy.org/doc/html/screens.html#use-and-transclude
@@ -259,6 +254,11 @@ class SLTransclude(SLNode):
 
 # https://www.renpy.org/doc/html/screens.html#screen-statement
 class SLScreen(SLBlock):
+    """
+    screen name(parameters):
+        [style_prefix ["pref"|"pref_vbox"|"pref_button"|None]]
+    """
+
     parameters: ast.ParameterInfo
     keyword: list
 
@@ -270,12 +270,14 @@ class SLScreen(SLBlock):
                 start += f"{util.get_code(self.parameters, **kwargs)}"
 
         properties = self.keyword.copy()
-        if self.tag:
-            properties.append(("tag", self.tag))
-        if self.layer != "'screens'" and self.layer != "None":
-            properties.append(("layer", self.layer))
-
-        if properties or self.children:
+        tag = util.attr(self, "tag")
+        if tag:
+            properties.append(("tag", tag))
+        layer = util.attr(self, "layer")
+        if layer != "'screens'" and layer != "None":
+            properties.append(("layer", layer))
+        children = util.attr(self, "children")
+        if properties or children:
             start += ":"
 
         rv = [start]
@@ -283,9 +285,14 @@ class SLScreen(SLBlock):
         if properties:
             rv.append(util.indent(util.get_code_properties(properties, newline=True)))
         # children
-        rv.append(util.indent(util.get_code(self.children, **kwargs)))
+        rv.append(util.indent(util.get_code(children, **kwargs)))
         return "\n".join(rv)
 
 
 class ScreenCache(object):
     pass
+
+
+class SLContinue(SLNode):
+    def get_code(self, **kwargs) -> str:
+        return "continue"

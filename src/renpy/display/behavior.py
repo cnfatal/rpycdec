@@ -15,6 +15,10 @@ class PauseBehavior(layout.Null):
     pass
 
 
+class DismissBehavior(layout.Null):
+    pass
+
+
 class SoundStopBehavior(layout.Null):
     pass
 

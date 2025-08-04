@@ -156,25 +156,38 @@ class Init(Node):
 
 
 class Label(Node):
+    """
+    label sample1:
+        "Here is 'sample1' label."
+
+    label sample2(a="default"):
+        "Here is 'sample2' label."
+        "a = [a]"
+    """
+
     _fields = [
+        "_name",
         "name",
         "parameters",
         "block",
         "hide",
     ]
 
+    def get_name(self):
+        """
+        Get the name of the label.
+        """
+        return util.attr(self, "name") or util.attr(self, "_name")
+
     def get_code(self, **kwargs) -> str:
         start = "label"
-        name = util.attr(self, "name", "_name")
+        name = self.get_name()
         if name:
             start += f" {name}"
         parameters = util.attr(self, "parameters")
         if parameters:
-            start += f"{parameters.get_code()}"
-        start += ":"  # label always has colon
-        rv = [start]
-        rv.append(util.indent(f"{util.get_code(self.block, **kwargs)}"))
-        return "\n".join(rv)
+            start += f"{util.get_code(parameters, **kwargs)}"
+        return util.label_code(start, util.attr(self, "block"), **kwargs)
 
 
 class Python(Node):
@@ -187,17 +200,16 @@ class Python(Node):
         $ flag = True
         """
         inner_code = util.get_code(self.code, **kwargs)
+        if not inner_code:
+            return ""
         storename = parse_store_name(util.attr(self, "store"))
-        if (
-            not storename
-            and not util.attr(self, "hide")
-            and len(inner_code.split("\n")) == 1
-        ):
+        hide = util.attr(self, "hide")
+        if not storename and not hide and len(inner_code.split("\n")) == 1:
             return f"$ {inner_code}"
         start = "python"
         if storename:
             start += f" in {storename}"
-        if self.hide:
+        if hide:
             start += " hide"
         if self.code:
             start += ":"
@@ -223,14 +235,9 @@ class EarlyPython(Node):
         start = "python early"
         if storename:
             start += f" in {storename}"
-        if self.hide:
+        if util.attr(self, "hide"):
             start += " hide"
-        if self.code:
-            start += ":"
-        rv = [start]
-        if self.code:
-            rv.append(util.indent(f"{inner_code}"))
-        return "\n".join(rv)
+        return util.label_code(start, util.attr(self, "code"), **kwargs)
 
 
 class Image(Node):
@@ -250,16 +257,10 @@ class Image(Node):
         start = "image"
         if self.imgname:
             start += f" {' '.join(self.imgname)}"
-        if self.code:
-            return f"{start} = {util.get_code(self.code,**kwargs)}"
-        atl = util.attr(self, "atl")
-        if atl:
-            rv = [f"{start}:"]
-            rv.append(util.indent(f"{util.get_code(atl, **kwargs)}"))
-            return "\n".join(rv)
-        raise NotImplementedError(
-            f"Image node without code or atl: {self.imgname} {self.code}"
-        )
+        code = util.attr(self, "code")
+        if code:
+            return f"{start} = {util.get_code(code,**kwargs)}"
+        return util.label_code(start, util.attr(self, "atl"), **kwargs)
 
 
 class Transform(Node):
@@ -274,14 +275,10 @@ class Transform(Node):
         start = "transform"
         if self.varname:
             start += f" {self.varname}"
-            if self.parameters:
-                start += f"{util.get_code(self.parameters,**kwargs)}"
-        if self.atl:
-            start += ":"
-        rv = [start]
-        if self.atl:
-            rv.append(util.indent(util.get_code(self.atl, **kwargs)))
-        return "\n".join(rv)
+            parameters = util.attr(self, "parameters")
+            if parameters:
+                start += f"{util.get_code(parameters, **kwargs)}"
+        return util.label_code(start, util.attr(self, "atl"), **kwargs)
 
 
 class Show(Node):
@@ -291,12 +288,7 @@ class Show(Node):
         name = get_imspec_name(self.imspec)
         if name:
             start += f" {name}"
-        if util.attr(self, "atl"):
-            start += ":"
-        rv = [start]
-        if util.attr(self, "atl"):
-            rv.append(util.indent(util.get_code(self.atl, **kwargs)))
-        return "\n".join(rv)
+        return util.label_code(start, util.attr(self, "atl"), **kwargs)
 
 
 class ShowLayer(Node):
@@ -309,32 +301,27 @@ class ShowLayer(Node):
         start = "show layer"
         if hasattr(self, "layer") and self.layer:
             start += f" {self.layer}"
-        if hasattr(self, "at_list") and self.at_list:
-            start += f" at {util.get_code(self.at_list,**kwargs)}"
-        if hasattr(self, "atl") and self.atl:
-            start += ":"
-        rv = [start]
-        if hasattr(self, "atl") and self.atl:
-            rv.append(util.indent(util.get_code(self.atl)))
-        return "\n".join(rv)
+        at_list = util.attr(self, "at_list")
+        # remove None from at_list
+        at_list = [x for x in at_list if x is not None]
+        if at_list:
+            start += f" at {util.get_code(at_list,**kwargs)}"
+        return util.label_code(start, util.attr(self, "atl"), **kwargs)
 
 
 class Scene(Node):
 
     def get_code(self, **kwargs) -> str:
         start = "scene"
-        if self.imspec:
-            name = get_imspec_name(self.imspec)
+        imspec = util.attr(self, "imspec")
+        if imspec:
+            name = get_imspec_name(imspec)
             if name:
                 start += f" {name}"
-        if self.layer:
-            start += f" {self.layer}"
-        if util.attr(self, "atl"):
-            start += ":"
-        rv = [start]
-        if util.attr(self, "atl"):
-            rv.append(util.indent(util.get_code(self.atl, **kwargs)))
-        return "\n".join(rv)
+        layer = util.attr(self, "layer")
+        if layer:
+            start += f" {layer}"
+        return util.label_code(start, util.attr(self, "atl"), **kwargs)
 
 
 class Hide(Node):
@@ -351,10 +338,12 @@ class With(Node):
 
     def get_code(self, **kwargs) -> str:
         start = "with"
-        if util.attr(self, "paired"):
-            start += f" {util.get_code(self.paired,**kwargs)}"
-        if self.expr and self.expr != "None":
-            start += f" {util.get_code(self.expr,**kwargs)}"
+        paired = util.attr(self, "paired")
+        if paired:
+            start += f" {util.get_code(paired,**kwargs)}"
+        expr = util.attr(self, "expr")
+        if expr and expr != "None":
+            start += f" {util.get_code(expr,**kwargs)}"
         return start
 
 
@@ -371,15 +360,18 @@ class Call(Node):
         return
         """
         start = "call"
-        if self.expression:
-            if self.expression == True:
-                start += f" expression"
+        expression = util.attr(self, "expression")
+        if expression:
+            if expression == True:
+                start += " expression"
             else:
-                start += f" expression {util.get_code(self.expression,**kwargs)} pass "
-        if self.label:
-            start += f" {self.label}"
-        if self.arguments:
-            start += f"{util.get_code(self.arguments,**kwargs)}"
+                start += f" expression {util.get_code(expression,**kwargs)} pass "
+        label = util.attr(self, "label")
+        if label:
+            start += f" {label}"
+        arguments = util.attr(self, "arguments")
+        if arguments:
+            start += f" {util.get_code(arguments,**kwargs)}"
         return start
 
 
@@ -391,10 +383,11 @@ class Return(Node):
         return self
 
     def get_code(self, **kwargs) -> str:
-        rv = ["return"]
-        if self.expression:
-            rv.append(f" {util.get_code(self.expression, **kwargs)}")
-        return "".join(rv)
+        expression = util.attr(self, "expression")
+        if expression:
+            return f"return {util.get_code(expression, **kwargs)}"
+        else:
+            return "return"
 
 
 class Menu(Node):
@@ -427,7 +420,7 @@ class Menu(Node):
 
         if statement_start:
             if isinstance(statement_start, Label):
-                start += f" {statement_start.name}"
+                start += f" {statement_start.get_name()}"
         if arguments:
             start += f" {util.get_code(arguments,**kwargs)}"
         if has_caption:
@@ -454,26 +447,21 @@ class Menu(Node):
                     start += f"{util.get_code(argument,**kwargs)}"
             if cond and cond != "True":
                 start += f" if {util.get_code(cond,**kwargs)}"
-            if expr:
-                start += ":"
-            rv.append(util.indent(start))
-            if expr:
-                rv.append(util.indent(util.get_code(expr, **kwargs), 2))
+            rv.append(util.indent(util.label_code(start, expr, **kwargs)))
         return "\n".join(rv)
 
 
 class Jump(Node):
 
     def get_code(self, **kwargs) -> str:
+        rv = "jump"
         expression = util.attr(self, "expression")
+        if expression and expression != True:
+            rv += f" {util.get_code(expression, **kwargs)}"
         target = util.attr(self, "target")
-
-        rv = ["jump"]
-        if expression:
-            rv.append(f" {util.get_code(expression, **kwargs)}")
         if target:
-            rv.append(f" {target}")
-        return "".join(rv)
+            rv += f" {target}"
+        return rv
 
 
 class Pass(Node):
@@ -499,12 +487,7 @@ class While(Node):
 
     def get_code(self, **kwargs) -> str:
         start = f"while {self.condition}"
-        if self.block:
-            start += ":"
-        rv = [start]
-        if self.block:
-            rv.append(util.indent(util.get_code(self.block, **kwargs)))
-        return "\n".join(rv)
+        return util.label_code(start, util.attr(self, "block"), **kwargs)
 
 
 class If(Node):
@@ -633,11 +616,11 @@ class TranslateString(Node):
     """
 
     def get_code(self, **kwargs) -> str:
-        rv = []
-        rv.append(f"translate {self.language} strings:")
-        rv.append(util.indent(f"old {translation.encode_say_string(self.old)}"))
-        rv.append(util.indent(f"new {translation.encode_say_string(self.new)}"))
-        return "\n".join(rv)
+        return (
+            f"translate {self.language} strings:\n"
+            f"{util.indent(f'old {translation.encode_say_string(self.old)}')} \n"
+            f"{util.indent(f'new {translation.encode_say_string(self.new)}')}"
+        )
 
 
 class TranslatePython(Node):
@@ -683,15 +666,20 @@ class Style(Node):
     def get_code(self, **kwargs) -> str:
         properties = self.properties.copy()
         start = f"style {self.style_name}"
-        if self.parent:
-            start += f" is {self.parent}"
-        if self.variant:
-            properties["variant"] = self.variant
-        if self.clear:
+        parent = util.attr(self, "parent")
+        if parent:
+            start += f" is {parent}"
+        variant = util.attr(self, "variant")
+        if variant:
+            properties["variant"] = variant
+        clear = util.attr(self, "clear")
+        if clear:
             properties["clear"] = None
-        if self.take:
-            properties["take"] = self.take
-        if self.delattr:
+        take = util.attr(self, "take")
+        if take:
+            properties["take"] = take
+        delattr = util.attr(self, "delattr")
+        if delattr:
             raise NotImplementedError
         if properties:
             start += ":"
@@ -723,9 +711,4 @@ class Camera(Node):
             start += f" {self.layer}"
         if self.at_list:
             start += f" at {util.get_code(self.at_list,**kwargs)}"
-        if self.atl:
-            start += ":"
-        rv = [start]
-        if self.atl:
-            rv.append(util.indent(util.get_code(self.atl, **kwargs)))
-        return "\n".join(rv)
+        return util.label_code(start, util.attr(self, "atl"), **kwargs)

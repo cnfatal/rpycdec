@@ -162,7 +162,10 @@ class Event(Statement):
 
 class RawFunction(RawStatement):
     def get_code(self, **kwargs) -> str:
-        return "function " + self.expr
+        if self.expr:
+            return "function " + self.expr
+        else:
+            return "function"
 
 
 class Function(Statement):

@@ -19,16 +19,29 @@ def get_code_properties(props: tuple | dict, newline: bool = False) -> str:
     :return: str
 
     >>> get_code_properties((("a", 1), ("b", 2)))
-    "a 1 b 2"
+    a 1 b 2
     >>> get_code_properties((("a", 1), (None, b)), newline=True)
-    "a 1\\nb"
+    a 1
+    b
+    >>> get_code_properties({"a": 1, "b": None})
+    a 1
+    b None
     """
     list = []
     if isinstance(props, dict):
         props = props.items()
     for prop in props:
-        prop_str = " ".join([str(x) for x in prop if x is not None])
-        list.append(prop_str)
+        if isinstance(prop, tuple) and len(prop) == 2:
+            key, value = prop[0], prop[1]
+            if value is None:
+                continue
+            list.append(f"{key} {value}")
+            continue
+        else:
+            prop_str = " ".join([str(x) for x in prop])
+            if not prop_str:
+                continue
+            list.append(prop_str)
     return ("\n" if newline else " ").join(list)
 
 
@@ -95,7 +108,7 @@ def get_code(node, **kwargs) -> str:
                     rv[-1] = __append_first_line(rv[-1], f" with {item.expr}")
                     continue
             if isinstance(item, ast.Label) and isinstance(prev, ast.Call):
-                rv[-1] = __append_first_line(rv[-1], f" from {item.name}")
+                rv[-1] = __append_first_line(rv[-1], f" from {item.get_name()}")
                 if isinstance(next, ast.Pass):
                     # skip pass after call
                     skip_next += 1
@@ -126,8 +139,22 @@ def get_block_code(node, **kwargs) -> str:
     return "\n".join(lines)
 
 
-def attr(item, *candidates: str) -> str:
-    for candidate in candidates:
-        if hasattr(item, candidate):
-            return getattr(item, candidate)
+def attr(item, key: str) -> str:
+    if hasattr(item, key):
+        return getattr(item, key)
     return None
+
+
+def label_code(label: str, child, **kwargs) -> str:
+    """
+    return a code block with a label
+    example:
+    >>> label_getcode("label foo", None)
+    "label foo"
+    >>> label_getcode("label foo", Expression("bar"))
+    "label foo:
+      bar"
+    """
+    if not child:
+        return label
+    return f"{label}:\n{indent(get_code(child, **kwargs))}"
