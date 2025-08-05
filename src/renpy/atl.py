@@ -20,8 +20,8 @@ class Statement(Object):
 
 class RawBlock(RawStatement):
     def get_code(self, **kwargs) -> str:
-        if self.animation:
-            raise NotImplementedError
+        # if self.animation:
+            # raise NotImplementedError
         return util.get_code(self.statements, **kwargs)
 
 

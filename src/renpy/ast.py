@@ -616,8 +616,11 @@ class TranslateString(Node):
     """
 
     def get_code(self, **kwargs) -> str:
+        language = util.attr(self, "language")
+        if not language:
+            language = "None"
         return (
-            f"translate {self.language} strings:\n"
+            f"translate {language} strings:\n"
             f"{util.indent(f'old {translation.encode_say_string(self.old)}')} \n"
             f"{util.indent(f'new {translation.encode_say_string(self.new)}')}"
         )

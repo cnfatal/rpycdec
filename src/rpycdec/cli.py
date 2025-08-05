@@ -2,6 +2,7 @@ import argparse
 import logging
 from rpycdec.decompile import decompile
 from rpycdec.rpa import extract_rpa
+from rpycdec.translate import extract_translation
 
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,14 @@ def extract_rpa_files(srcs: list[str]):
     for src in srcs:
         with open(src, "rb") as f:
             extract_rpa(f)
+
+
+def run_extract_translation(srcs: list[str], language: str = "None"):
+    """
+    extract translations from rpy files.
+    """
+    for src in srcs:
+        extract_translation(src, language)
 
 
 def main():
@@ -45,6 +54,17 @@ def main():
     unrpa_parser = subparsers.add_parser("unrpa", help="extract rpa archive")
     unrpa_parser.add_argument("src", nargs=1, help="rpa archive")
     unrpa_parser.set_defaults(func=extract_rpa_files)
+
+    extract_translation_parser = subparsers.add_parser(
+        "extract_translation", help="extract translations from rpy files"
+    )
+    extract_translation_parser.add_argument(
+        "--language", "-l", default="None", help="translation language"
+    )
+    extract_translation_parser.add_argument(
+        "src", nargs=1, help="rpy file or directory"
+    )
+    extract_translation_parser.set_defaults(func=run_extract_translation)
 
     args = argparser.parse_args()
     if args.verbose:
