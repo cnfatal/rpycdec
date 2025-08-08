@@ -1,0 +1,8 @@
+*.swp
+*.pyc
+*.rpyc
+__pycache__
+saves
+cache
+*_decompiled
+log.txt

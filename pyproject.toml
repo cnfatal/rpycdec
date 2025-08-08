@@ -15,10 +15,11 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dynamic = ["version"]
-dependencies = [
-    "requests",
-    "ratelimit",
-]
+dependencies = ["requests", "ratelimit"]
+
+[project.optional-dependencies]
+release = ["twine"]
+
 [project.urls]
 "Homepage" = "https://github.com/cnfatal/rpycdec"
 "Bug Tracker" = "https://github.com/cnfatal/rpycdec/issues"
@@ -30,7 +31,7 @@ rpycdec = "rpycdec:main"
 exclude = ["/.github", "/docs"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/rpycdec","src/renpy", "src/store"]
+packages = ["src/rpycdec", "src/renpy", "src/store"]
 
 [tool.hatch.version]
 source = "vcs"
