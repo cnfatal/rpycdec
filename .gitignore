@@ -1,7 +1,6 @@
 *.swp
 *.pyc
 *.pyo
-*.rpy
 *.rpyc
 __pycache__
 /build
@@ -12,3 +11,4 @@ __pycache__
 /workspace
 /.cache
 /.venv
+/sdks

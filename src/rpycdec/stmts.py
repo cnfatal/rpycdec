@@ -2,6 +2,7 @@ import io
 import logging
 from os import path
 import pickle
+import pickletools
 import struct
 import zlib
 
@@ -80,7 +81,8 @@ def read_rpyc_data(file: io.BufferedReader, slot):
     return zlib.decompress(data)
 
 
-def load(data: io.BufferedReader) -> Node | None:
+def load(data: io.BufferedReader, **kwargs) -> Node | None:
+    # 1 is statements before translation, 2 is after translation.
     for slot in [1, 2]:
         try:
             bindata = read_rpyc_data(data, slot)
@@ -89,12 +91,19 @@ def load(data: io.BufferedReader) -> Node | None:
             data.seek(0)
             continue
         if bindata:
-            _, stmts = pickle.loads(bindata)
+            if kwargs.get("dis", False):
+                logger.info("Disassembling rpyc file...")
+                pickletools.dis(bindata)
+
+            data, stmts = pickle.loads(
+                bindata, encoding="utf-8", errors="surrogateescape"
+            )
+            key = data.get("key", "unlocked")
             return stmts
     raise Exception("Unsupported file format or invalid file")
 
 
-def load_file(filename) -> Node | None:
+def load_file(filename, **kwargs) -> Node | None:
     """
     load renpy code from rpyc file and return ast tree.
     """
@@ -104,4 +113,4 @@ def load_file(filename) -> Node | None:
             "unsupport for pase rpy file or use renpy.parser.parse() in renpy's SDK"
         )
     with open(filename, "rb") as file:
-        return load(file)
+        return load(file, **kwargs)

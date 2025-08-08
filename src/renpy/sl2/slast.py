@@ -1,4 +1,4 @@
-from .. import ast, ui, util
+from .. import ast, astsupport, ui, util
 
 
 class SLContext(ui.Addable):
@@ -10,6 +10,13 @@ class SLNode(object):
 
 
 class SLBlock(SLNode):
+    """
+    foo bar
+    baz 1
+
+    expression
+    """
+
     def get_code(self, **kwargs) -> str:
         rv = []
         if self.keyword:
@@ -64,18 +71,19 @@ class SLDisplayable(SLBlock):
     https://www.renpy.org/doc/html/screens.html#add-statement
     https://www.renpy.org/doc/html/screens.html#use
     https://www.renpy.org/doc/html/screens.html#has
+    https://www.renpy.org/doc/html/screens.html#imagebutton
     """
 
     def get_name(self) -> str:
         # higher version use style instead of name
         name = getattr(self, "name", None)
-        displable = getattr(self, "displayable", None)
+        displayable = getattr(self, "displayable", None)
         start = ""
         if name:
             start = name
-        elif displable:
+        elif displayable:
             # displayable function named sl2xxx like sl2vbar , sl2viewport
-            displable_name = displable.__name__.lower()
+            displable_name = displayable.__name__.lower()
             if displable_name.startswith("sl2"):
                 start = displable_name.replace("sl2", "")
             elif displable_name == "onevent":
@@ -98,22 +106,12 @@ class SLDisplayable(SLBlock):
         if not start:
             raise Exception("displayable not found")
 
-        # if scope      add:
-        # if not scope  add():
-        # if not self.scope:
-        # start += "()"
         positional = util.attr(self, "positional")
-        positional = [x for x in positional if x is not None]
         if positional:
-            start += f" {' '.join(positional)}"
-        # unhandled attributes
-        hotspot = util.attr(self, "hotspot")
-        replaces = util.attr(self, "replaces")
-        pass_context = util.attr(self, "pass_context")
-        imagemap = util.attr(self, "imagemap")
-        variable = util.attr(self, "variable")
-        default_keywords = util.attr(self, "default_keywords")
-        child_or_fixed = util.attr(self, "child_or_fixed")
+            if isinstance(positional, list):
+                start += " " + " ".join(util.get_code(p, **kwargs) for p in positional)
+            else:
+                start += " " + util.get_code(positional, **kwargs)
         # keywords
         keyword = util.attr(self, "keyword")
         children = util.attr(self, "children")
@@ -122,11 +120,11 @@ class SLDisplayable(SLBlock):
                 start += f" {util.get_code_properties(keyword)}"
             return start
         # children
-        start += ":"
-        rv = [start]
+        rv = [start + ":"]
         if keyword:
             rv.append(util.indent(util.get_code_properties(keyword, newline=True)))
         rv.append(util.indent(util.get_code(children, **kwargs)))
+        rv.append("")  # add a newline at the end
         return "\n".join(rv)
 
 
@@ -192,8 +190,13 @@ class SLFor(SLBlock):
     """
 
     def get_code(self, **kwargs) -> str:
-        start = f"for {self.variable} in {self.expression}:"
-        return util.label_code(start, self.children, **kwargs)
+        rv = [f"for {self.variable} in {self.expression}:"]
+        children = util.attr(self, "children")
+        if not children:
+            rv.append(util.indent("pass"))
+        else:
+            rv.append(util.indent(util.get_code(children, **kwargs)))
+        return "\n".join(rv)
 
 
 class SLPython(SLNode):
@@ -210,27 +213,40 @@ class SLPass(SLNode):
     pass
 
 
-# https://www.renpy.org/doc/html/python.html#default-statement
 class SLDefault(SLNode):
+    """
+    https://www.renpy.org/doc/html/python.html#default-statement
+    """
+
     def get_code(self, **kwargs) -> str:
         return f"default {self.variable} = {self.expression}"
 
 
 class SLUse(SLNode):
+    """
+    https://www.renpy.org/doc/html/screens.html#use
+
+    use [expression EXPR pass|WORD] ARGUMENTS [id EXPR][:]
+        BLOCK
+    """
+
     def get_code(self, **kwargs) -> str:
         start = "use"
-        if self.target:
-            if isinstance(self.target, ast.PyExpr):
-                start += f" expression {util.get_code(self.target, **kwargs)}"
+        target = util.attr(self, "target")
+        if target:
+            if isinstance(target, ast.PyExpr):
+                start += f" expression {util.get_code(target, **kwargs)} pass "
+            elif isinstance(target, astsupport.PyExpr):
+                start += f" expression {util.get_code(target, **kwargs)} pass "
             else:
-                start += f" {self.target}"
+                start += f" {target}"
         if self.args:
             start += f"{util.get_code(self.args, **kwargs)}"
         if self.block:
             return util.label_code(start, self.block, **kwargs)
         if self.ast:
             return util.label_code(start, self.ast, **kwargs)
-        return start
+        return start + "\n"
 
 
 # https://www.renpy.org/doc/html/screens.html#use-and-transclude
@@ -252,11 +268,9 @@ class SLTransclude(SLNode):
         return "transclude"
 
 
-# https://www.renpy.org/doc/html/screens.html#screen-statement
 class SLScreen(SLBlock):
     """
-    screen name(parameters):
-        [style_prefix ["pref"|"pref_vbox"|"pref_button"|None]]
+    https://www.renpy.org/doc/html/screens.html#screen-statement
     """
 
     parameters: ast.ParameterInfo
@@ -266,26 +280,26 @@ class SLScreen(SLBlock):
         start = "screen"
         if self.name:
             start += f" {self.name}"
-            if self.parameters:
-                start += f"{util.get_code(self.parameters, **kwargs)}"
+        if self.parameters:
+            start += f"{util.get_code(self.parameters, **kwargs)}"
 
         properties = self.keyword.copy()
         tag = util.attr(self, "tag")
         if tag:
             properties.append(("tag", tag))
-        layer = util.attr(self, "layer")
-        if layer != "'screens'" and layer != "None":
-            properties.append(("layer", layer))
-        children = util.attr(self, "children")
-        if properties or children:
-            start += ":"
 
-        rv = [start]
+        rv = [start + ":"]
         # keyword
         if properties:
             rv.append(util.indent(util.get_code_properties(properties, newline=True)))
+            rv.append("")  # add a newline after keyword
         # children
-        rv.append(util.indent(util.get_code(children, **kwargs)))
+        children = util.attr(self, "children")
+        if children:
+            rv.append(util.indent(util.get_code(children, **kwargs)))
+        if len(rv) == 1:
+            rv.append("pass")
+        rv.append("")  # add a newline at the end
         return "\n".join(rv)
 
 

@@ -14,12 +14,12 @@ def read_util(data: BufferedIOBase, util: int = 0x00) -> bytes:
     return content
 
 
-def to_start(start: str | None | bytes) -> bytes:
-    if not start:
+def start_to_bytes(left: list | None) -> bytes:
+    if not left:
         return b""
-    if isinstance(start, bytes):
-        return start
-    return start.encode("latin-1")
+    if isinstance(left[0], bytes):
+        return left[0]
+    return left[0].encode("latin-1")
 
 
 def extract_rpa(r: BufferedIOBase, dir: str | None = None):
@@ -33,9 +33,10 @@ def extract_rpa(r: BufferedIOBase, dir: str | None = None):
     # read index
     r.seek(index_offset)
     index = pickle.loads(zlib.decompress(r.read()))
+
     for k, v in index.items():
         index[k] = [
-            (offset ^ key, dlen ^ key, b"" if len(left) == 0 else to_start(left[0]))
+            (offset ^ key, dlen ^ key, start_to_bytes(left))
             for offset, dlen, *left in v
         ]
 

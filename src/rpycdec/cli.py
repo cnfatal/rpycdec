@@ -8,15 +8,15 @@ from rpycdec.translate import extract_translation
 logger = logging.getLogger(__name__)
 
 
-def decompile_files(srcs: list[str]):
+def decompile_files(srcs: list[str], **kwargs):
     """
     decompile rpyc file or directory.
     """
     for src in srcs:
-        decompile(src)
+        decompile(src, dis=kwargs.get("dissemble", False))
 
 
-def extract_rpa_files(srcs: list[str]):
+def extract_rpa_files(srcs: list[str], **kwargs):
     """
     extract rpa archive.
     """
@@ -49,6 +49,9 @@ def main():
 
     decompile_parser = subparsers.add_parser("decompile", help="decompile rpyc file")
     decompile_parser.add_argument("src", nargs=1, help="rpyc file or directory")
+    decompile_parser.add_argument(
+        "--dissemble", "-d", action="store_true", help="disassemble rpyc file"
+    )
     decompile_parser.set_defaults(func=decompile_files)
 
     unrpa_parser = subparsers.add_parser("unrpa", help="extract rpa archive")
@@ -72,4 +75,4 @@ def main():
     if not args.command:
         argparser.print_help()
         return
-    args.func(args.src)
+    args.func(args.src, **vars(args))

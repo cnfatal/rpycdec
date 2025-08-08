@@ -3,24 +3,22 @@
 import logging
 import os
 
-import renpy.ast
-import renpy.sl2.slast
-import renpy.util
+from renpy import util
 from rpycdec import stmts, utils
 
 logger = logging.getLogger(__name__)
 
 
-def decompile_file(input_file, output_file=None):
+def decompile_file(input_file, output_file=None, **kwargs):
     """
     decompile rpyc file into rpy file and write to output.
     """
     if not output_file:
         name, _ = os.path.splitext(input_file)
         output_file = f"{name}.rpy"
-    stmt = stmts.load_file(input_file)
+    stmt = stmts.load_file(input_file, **kwargs)
     try:
-        code = renpy.util.get_code(stmt)
+        code = util.get_code(stmt)
     except Exception as e:
         logger.error("decode file %s failed: %s", input_file, e)
         raise e
@@ -28,7 +26,7 @@ def decompile_file(input_file, output_file=None):
     logger.info("decompile %s -> %s", input_file, output_file)
 
 
-def decompile(input_path, output_path=None):
+def decompile(input_path, output_path=None, **kwargs):
     """
     decompile rpyc file or directory into rpy
 
@@ -40,16 +38,13 @@ def decompile(input_path, output_path=None):
         output path, by default it's same path of input_path.
     """
     if not os.path.isdir(input_path):
-        decompile_file(input_path, output_path)
+        decompile_file(input_path, output_path, **kwargs)
         return
     if not output_path:
         output_path = input_path
     for filename in utils.match_files(input_path, r".*\.rpym?c$"):
-        try:
-            decompile_file(
-                os.path.join(input_path, filename),
-                os.path.join(output_path, filename.removesuffix("c")),
-            )
-        except Exception as e:
-            logger.error("decompile file %s failed: %s", filename, e)
-            continue
+        decompile_file(
+            os.path.join(input_path, filename),
+            os.path.join(output_path, filename.removesuffix("c")),
+            **kwargs,
+        )

@@ -1,18 +1,36 @@
 from . import ast
+from collections import deque
 
-IDENT_CHAR = "    "
+IDENT_CHAR = "  "
 
 
 def indent(code: str, level: int = 1) -> str:
-    return "".join(
-        map(
-            lambda x: f"{IDENT_CHAR * level}{x}",
-            filter(lambda x: x.strip(), code.splitlines(keepends=True)),
-        )
+    """
+    Indent each line of code by a specified level.
+
+    Args:
+        code: The string to indent
+        level: Number of indentation levels to apply (default: 1)
+        newline: If True, adds a newline after each indented line
+
+    Returns:
+        The indented string
+    """
+    if not code:
+        return ""
+    indent_str = IDENT_CHAR * level
+
+    # Handle multiline strings more efficiently
+    if "\n" not in code:
+        return indent_str + code if code.strip() else code
+
+    # Use list comprehension for better performance
+    return "\n".join(
+        indent_str + line if line.strip() else line for line in code.splitlines()
     )
 
 
-def get_code_properties(props: tuple | dict, newline: bool = False) -> str:
+def get_code_properties(props: tuple | dict, newline: bool = False, **kwargs) -> str:
     """
     :param keyword: tuple | dict
     :param newline: bool
@@ -33,9 +51,11 @@ def get_code_properties(props: tuple | dict, newline: bool = False) -> str:
     for prop in props:
         if isinstance(prop, tuple) and len(prop) == 2:
             key, value = prop[0], prop[1]
-            if value is None:
-                continue
-            list.append(f"{key} {value}")
+            valstr = get_code(value, **kwargs)
+            if not valstr:
+                list.append(f"{key}")
+            else:
+                list.append(f"{key} {valstr}")
             continue
         else:
             prop_str = " ".join([str(x) for x in prop])
@@ -43,15 +63,6 @@ def get_code_properties(props: tuple | dict, newline: bool = False) -> str:
                 continue
             list.append(prop_str)
     return ("\n" if newline else " ").join(list)
-
-
-def __append_first_line(text, add) -> str:
-    lines = text.splitlines()
-    if lines:
-        v = lines[0]
-        i = len(v) - 1 if ":" in v else len(v)
-        lines[0] = v[:i] + add + v[i:]
-    return "\n".join(lines)
 
 
 def get_code(node, **kwargs) -> str:
@@ -76,43 +87,80 @@ def get_code(node, **kwargs) -> str:
         if node type is not implemented or some attributes unable to handle.
 
     """
+    if isinstance(node, str):
+        return node
     if isinstance(node, list):
         rv = []
-        skip_next = 0
-        for idx, item in enumerate(node):
-            if skip_next > 0:
-                skip_next -= 1
-                continue
+        items = deque(node)
+        while items:
+            item = items.popleft()
 
-            prev = node[idx - 1] if idx > 0 else None
-            next = node[idx + 1] if idx < len(node) - 1 else None
+            if isinstance(item, ast.Say):
+                next = items[0] if items else None
+                if isinstance(next, ast.Menu):
+                    menu = items.popleft()
+                    call_kwargs = kwargs.copy()
+                    call_kwargs["menu_say"] = item
+                    rv.append(get_code(menu, **call_kwargs))
+                    continue
 
-            # TODO: it's a hack, fix it later
-            if (
-                isinstance(item, ast.Say)
-                and not attr(item, "interact")
-                and isinstance(next, ast.Menu)
-            ):
-                continue
-            if isinstance(item, ast.Label) and isinstance(next, ast.Menu):
-                if next.statement_start == item:
-                    continue  # skip label before menu
+            if isinstance(item, ast.Label):
+                # [Label,[Say|UserStatement],Menu]
+                next = items[0] if items else None
+                if isinstance(next, ast.Say) or isinstance(next, ast.UserStatement):
+                    next = items[1] if len(items) > 1 else None
+                    if isinstance(next, ast.Menu):
+                        call_kwargs = kwargs.copy()
+                        call_kwargs["menu_label"] = items
+                        call_kwargs["menu_say"] = items.popleft()
+                        menu = items.popleft()
+                        rv.append(get_code(menu, **call_kwargs))
+                        continue
+                if isinstance(next, ast.Menu):
+                    # [Label, Menu]
+                    call_kwargs = kwargs.copy()
+                    call_kwargs["menu_label"] = item
+                    menu = items.popleft()
+                    rv.append(get_code(menu, **call_kwargs))
+                    continue
+
             if isinstance(item, ast.With):
-                if attr(item, "paired") or not attr(item, "expr"):
+                # [ast.With(loc, "None", expr), node, ast.With(loc, expr)]
+                expr, paired = attr(item, "expr"), attr(item, "paired")
+                if (not expr or expr == "None") and paired:
+                    next = items.popleft()
+                    rv.append(get_code(next, **kwargs))
+                    close_with = items.popleft()
+                    rv.append(get_code(close_with, **kwargs))
                     continue
-                prevprev = node[idx - 2] if idx - 2 >= 0 else None
-                if (
-                    isinstance(prevprev, ast.With)
-                    and attr(prevprev, "paired") == item.expr
-                ):
-                    rv[-1] = __append_first_line(rv[-1], f" with {item.expr}")
+
+            if isinstance(item, ast.Call):
+                # call = [Call, Label?, Pass]
+                from_label = None
+                # try to pop next Label|Pass
+                next = items.popleft() if items else None
+                if isinstance(next, ast.Label):
+                    from_label = next
+                    # pop Pass
+                    items.popleft() if items else None
+
+                if from_label is not None:
+                    call_kwargs = kwargs.copy()
+                    call_kwargs["from_label"] = from_label
+                    rv.append(get_code(item, **call_kwargs))
                     continue
-            if isinstance(item, ast.Label) and isinstance(prev, ast.Call):
-                rv[-1] = __append_first_line(rv[-1], f" from {item.get_name()}")
-                if isinstance(next, ast.Pass):
-                    # skip pass after call
-                    skip_next += 1
-                continue
+
+            if isinstance(item, ast.Return):
+                # return at the end of file is ignored
+                if len(node) > 1 and not items and not attr(item, "expression"):
+                    continue
+
+            # if isinstance(item, ast.Init):
+            # if item.priority == 500:
+            #     if len(item.block) == 1 and isinstance(item.block[0], ast.Image):
+            #         rv.append(get_code(item.block[0]))
+            #         continue
+
             rv.append(get_code(item, **kwargs))
         return "\n".join(rv)
 
@@ -157,4 +205,4 @@ def label_code(label: str, child, **kwargs) -> str:
     """
     if not child:
         return label
-    return f"{label}:\n{indent(get_code(child, **kwargs))}"
+    return f"{label}:\n{indent(get_code(child, **kwargs))}\n"

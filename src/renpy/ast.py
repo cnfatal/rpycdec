@@ -1,3 +1,4 @@
+import logging
 from . import translation, util
 
 
@@ -9,18 +10,53 @@ def parse_store_name(name: str) -> str:
     return name.lstrip("store.")
 
 
-def get_imspec_name(imspec) -> str:
+def align_imspec(imspec):
+    """
+    Align imspec to a tuple of 7 elements.
+    """
     if len(imspec) == 7:
-        name, expression, tag, at_list, layer, zorder, behind = imspec
+        return imspec
     elif len(imspec) == 6:
-        name, expression, tag, at_list, layer, zorder = imspec
-        behind = []
+        return imspec + (None,)
     elif len(imspec) == 3:
-        name, at_list, layer = imspec
-        expression, tag, zorder = None, None, []
+        return imspec + (None, None, None, None)
+    else:
+        raise ValueError(f"Invalid imspec length: {len(imspec)}")
+
+
+def get_imspec_name(imspec) -> str:
+    name, expression, tag, at_list, layer, zorder, behind = align_imspec(imspec)
     if expression:
         return f"expression {expression}"
     return " ".join(name)
+
+
+def get_imspec_expr(imspec, **kwargs) -> str:
+    name, expression, tag, at_list, layer, zorder, behind = align_imspec(imspec)
+    rv = []
+    if expression:
+        rv.append(f"expression {util.get_code(expression, **kwargs)}")
+    else:
+        rv.append(name[0])
+
+    if layer:
+        rv.append(f"onlayer {layer}")
+
+    if at_list:
+        at_list = ", ".join([util.get_code(at, **kwargs) for at in at_list])
+        rv.append(f"at {at_list}")
+
+    if tag:
+        rv.append(f"tag {util.get_code(tag, **kwargs)}")
+
+    if zorder:
+        rv.append(f"zorder {util.get_code(zorder, **kwargs)}")
+
+    if behind:
+        behind = ", ".join([util.get_code(b, **kwargs) for b in behind])
+        rv.append(f"behind {behind}")
+
+    return " ".join(rv)
 
 
 class Node(object):
@@ -83,16 +119,23 @@ class ArgumentInfo(object):
         return "(" + ", ".join(args) + ")"
 
 
-class PyExpr(str):
+class PyExpr(object):
     """
     Represents a string containing python code.
     """
 
-    def __new__(cls, s, filename, linenumber, py=int):
-        return str.__new__(cls, s)
+    def __new__(cls, s, filename, linenumber, py=3):
+        self = str.__new__(cls, s)
+        self.filename = filename  # type: ignore
+        self.linenumber = linenumber  # type: ignore
+        self.py = py  # type: ignore
+        return self
 
     def get_code(self, **kwargs) -> str:
-        return self
+        return self.expr
+
+    def __str__(self):
+        return self.expr
 
 
 class PyCode(object):
@@ -103,7 +146,7 @@ class PyCode(object):
         self.state = state
 
     def get_code(self, **kwargs) -> str:
-        return self.state[1]
+        return util.get_code(self.state[1])
 
 
 class Scry(object):
@@ -111,37 +154,80 @@ class Scry(object):
 
 
 class Say(Node):
+    """
+    https://www.renpy.org/doc/html/dialogue.html#say-statement
+    """
 
     def get_code(self, **kwargs) -> str:
         rv = []
         who = util.attr(self, "who")
         if who:
             rv.append(who)
-        if getattr(self, "who_fast", None):
-            # no thing to do with who_fast, who_fast is False when who is None
-            pass
+
         if getattr(self, "attributes", None):
             rv.extend(self.attributes)
-        if getattr(self, "temporary_attributes", None):
+
+        temporary_attributes = util.attr(self, "temporary_attributes")
+        if temporary_attributes:
             rv.append("@")
-            rv.extend(self.temporary_attributes)
+            rv.extend(temporary_attributes)
+
         rv.append(translation.encode_say_string(self.what))
-        # if not self.interact:
-        if not getattr(self, "interact", None):
-            # penelope "" nointeract
+
+        interact = util.attr(self, "interact")
+        if interact is False:
             rv.append("nointeract")
-        if getattr(self, "with_", None):
-            rv.append("with")
-            rv.append(self.with_)
-        if getattr(self, "arguments", None):
-            rv.append(util.get_code(self.arguments, **kwargs))
+
+        with_ = util.attr(self, "with_")
+        if with_:
+            rv.append(f"with {with_}")
+
+        id = util.attr(self, "identifier")
+        if id:
+            rv.append(f"id {id}")
+
+        arguments = util.attr(self, "arguments")
+        if arguments:
+            rv.append(util.get_code(arguments, **kwargs))
+
         return " ".join(rv)
 
 
 class Init(Node):
+    """
+    https://www.renpy.org/doc/html/python.html#init-python-statement
+
+    init python:
+
+
+
+    https://www.renpy.org/doc/html/lifecycle.html#init-offset-statement
+
+    init offset = 42
+
+    """
+
     def get_code(self, **kwargs) -> str:
-        if self.priority == -500 or self.priority == 0:  # default priority ?
+        if len(self.block) == 1:
+            next = self.block[0]
+            if isinstance(next, Python) or isinstance(next, EarlyPython):
+                return f"init {util.get_code(next, **kwargs)}"
+            if self.priority == -500 and isinstance(next, Screen):
+                return util.get_code(self.block, **kwargs)
+            if self.priority == 500 and isinstance(next, Image):
+                return util.get_code(next, **kwargs)
+            if (
+                isinstance(next, Define)
+                or isinstance(next, Default)
+                or isinstance(next, Transform)
+            ):
+                return util.get_code(next, **kwargs)
+
+        if self.priority == 0 and all(
+            isinstance(item, TranslateString) for item in self.block
+        ):
             return util.get_code(self.block, **kwargs)
+
         start = "init"
         if self.priority:
             start += f" {self.priority}"
@@ -152,11 +238,14 @@ class Init(Node):
             return f"{start} {inner_code}"
         rv = [start + ":"]
         rv.append(util.indent(inner_code))
+        rv.append("")  # add a blank line after init block
         return "\n".join(rv)
 
 
 class Label(Node):
     """
+    https://www.renpy.org/doc/html/label.html
+
     label sample1:
         "Here is 'sample1' label."
 
@@ -164,14 +253,6 @@ class Label(Node):
         "Here is 'sample2' label."
         "a = [a]"
     """
-
-    _fields = [
-        "_name",
-        "name",
-        "parameters",
-        "block",
-        "hide",
-    ]
 
     def get_name(self):
         """
@@ -187,35 +268,44 @@ class Label(Node):
         parameters = util.attr(self, "parameters")
         if parameters:
             start += f"{util.get_code(parameters, **kwargs)}"
-        return util.label_code(start, util.attr(self, "block"), **kwargs)
+        hide = util.attr(self, "hide")
+        if hide:
+            start += " hide"
+        block = util.attr(self, "block")
+        if not block:
+            block = Pass()
+        return util.label_code(start, block, **kwargs)
 
 
 class Python(Node):
+    """
     # https://www.renpy.org/doc/html/python.html#python-statements
-    def get_code(self, **kwargs) -> str:
-        """
-        python:
-            flag = True
 
-        $ flag = True
-        """
+
+    python:
+        flag = True
+
+    $ flag = True
+    """
+
+    def get_code(self, **kwargs) -> str:
         inner_code = util.get_code(self.code, **kwargs)
-        if not inner_code:
-            return ""
-        storename = parse_store_name(util.attr(self, "store"))
+        store = parse_store_name(util.attr(self, "store"))
         hide = util.attr(self, "hide")
-        if not storename and not hide and len(inner_code.split("\n")) == 1:
+
+        # For single-line Python statements
+        # without store or hide attributes, use the $ shorthand
+        if not store and not hide and "\n" not in inner_code:
             return f"$ {inner_code}"
+
         start = "python"
-        if storename:
-            start += f" in {storename}"
+        if store:
+            start += f" in {store}"
         if hide:
             start += " hide"
-        if self.code:
-            start += ":"
-        rv = [start]
-        if self.code:
-            rv.append(util.indent(f"{inner_code}"))
+        rv = [start + ":"]
+        rv.append(util.indent(f"{inner_code}"))
+        rv.append("")  # add a blank line after python block
         return "\n".join(rv)
 
 
@@ -264,6 +354,13 @@ class Image(Node):
 
 
 class Transform(Node):
+    """
+    https://www.renpy.org/doc/html/transforms.html#transform-statement
+
+    atl_transform ::=  "transform" qualname ( "(" parameters ")" )? ":"
+                      atl_block
+    """
+
     def get_code(self, **kwargs) -> str:
         """
         transform notif_t:
@@ -273,8 +370,9 @@ class Transform(Node):
             ease .2 alpha 0 yzoom 0
         """
         start = "transform"
-        if self.varname:
-            start += f" {self.varname}"
+        varname = util.attr(self, "varname")
+        if varname:
+            start += f" {varname}"
             parameters = util.attr(self, "parameters")
             if parameters:
                 start += f"{util.get_code(parameters, **kwargs)}"
@@ -293,34 +391,46 @@ class Show(Node):
 
 class ShowLayer(Node):
     """
+    https://www.renpy.org/doc/html/displaying_images.html#camera-and-show-layer-statements
+
+
     show layer <name> at a,b,c :
         atl
     """
 
     def get_code(self, **kwargs) -> str:
         start = "show layer"
-        if hasattr(self, "layer") and self.layer:
-            start += f" {self.layer}"
+        layer = util.attr(self, "layer")
+        if layer:
+            start += f" {layer}"
+        if not layer:
+            start += " master"
+            logging.warning(
+                "ShowLayer not have a layer name: %s:%s", self.filename, self.linenumber
+            )
         at_list = util.attr(self, "at_list")
-        # remove None from at_list
-        at_list = [x for x in at_list if x is not None]
         if at_list:
-            start += f" at {util.get_code(at_list,**kwargs)}"
+            at_list = ", ".join([util.get_code(at, **kwargs) for at in at_list])
+            start += f" at {at_list}"
         return util.label_code(start, util.attr(self, "atl"), **kwargs)
 
 
 class Scene(Node):
+    """
+    https://www.renpy.org/doc/html/displaying_images.html#scene-statement
+
+    example:
+    scene bg room
+    """
 
     def get_code(self, **kwargs) -> str:
         start = "scene"
         imspec = util.attr(self, "imspec")
-        if imspec:
-            name = get_imspec_name(imspec)
-            if name:
-                start += f" {name}"
         layer = util.attr(self, "layer")
-        if layer:
-            start += f" {layer}"
+        if imspec:
+            start += f" {get_imspec_expr(imspec, **kwargs)}"
+        elif layer:
+            start += f" onlayer {layer}"
         return util.label_code(start, util.attr(self, "atl"), **kwargs)
 
 
@@ -337,41 +447,47 @@ class Hide(Node):
 class With(Node):
 
     def get_code(self, **kwargs) -> str:
-        start = "with"
         paired = util.attr(self, "paired")
         if paired:
-            start += f" {util.get_code(paired,**kwargs)}"
+            raise Exception("With paired not covered")
         expr = util.attr(self, "expr")
-        if expr and expr != "None":
-            start += f" {util.get_code(expr,**kwargs)}"
-        return start
+        if isinstance(expr, str):
+            return f"with {expr}"
+        return f"with {util.get_code(expr, **kwargs)}"
 
 
 class Call(Node):
+    """
+    https://www.renpy.org/doc/html/label.html#call-statement
 
-    # https://www.renpy.org/doc/html/label.html#call-statement
+    call subroutine
+
+    call subroutine(2)
+
+    call expression "sub" + "routine" pass (count=3)
+
+    call [expression SIMPLE_EXPRESSION] [pass] [ARGUMENTS] [from LABEL]
+    call LABEL [ARGUMENTS]
+    """
+
     def get_code(self, **kwargs) -> str:
-        """
-        label start:
-        e "First, we will call a subroutine."
-        call subroutine
-        call subroutine(2)
-        call expression "sub" + "routine" pass (count=3)
-        return
-        """
         start = "call"
         expression = util.attr(self, "expression")
         if expression:
             if expression == True:
                 start += " expression"
             else:
-                start += f" expression {util.get_code(expression,**kwargs)} pass "
+                start += f" expression {util.get_code(expression,**kwargs)}"
         label = util.attr(self, "label")
         if label:
             start += f" {label}"
         arguments = util.attr(self, "arguments")
         if arguments:
-            start += f" {util.get_code(arguments,**kwargs)}"
+            start += f"{util.get_code(arguments,**kwargs)}"
+
+        from_label = kwargs.get("from_label", None)
+        if from_label:
+            start += f" from {from_label.get_name()}"
         return start
 
 
@@ -391,7 +507,14 @@ class Return(Node):
 
 
 class Menu(Node):
-    # https://www.renpy.org/doc/html/menus.html#in-game-menus
+    """
+    https://www.renpy.org/doc/html/menus.html#in-game-menus
+    """
+
+    def _is_caption(item):
+        label, condition, block = item
+        return condition == "True" and block is None
+
     def get_code(self, **kwargs) -> str:
         """
         default menuset = set()
@@ -408,55 +531,64 @@ class Menu(Node):
                 jump go_to_jail
         """
         start = "menu"
-        statement_start = util.attr(self, "statement_start")
-        arguments = util.attr(self, "arguments")
-        has_caption = util.attr(self, "has_caption")
-        items, attrset, with_ = (
-            util.attr(self, "items"),
-            util.attr(self, "set"),
-            util.attr(self, "with_"),
-        )
-        item_arguments = util.attr(self, "item_arguments")
+        label = util.attr(kwargs, "menu_label")
+        if label:
+            if isinstance(label, Label):
+                start += f" {label.get_name()}"
+            else:
+                start += f" {label}"
 
-        if statement_start:
-            if isinstance(statement_start, Label):
-                start += f" {statement_start.get_name()}"
+        # if statement_start:
+        #     if isinstance(statement_start, Label):
+        #         start += f" {statement_start.get_name()}"
+        arguments = util.attr(self, "arguments")
         if arguments:
             start += f" {util.get_code(arguments,**kwargs)}"
-        if has_caption:
-            pass
 
-        if items or attrset or with_:
-            start += ":"
-        rv = [start]
+        rv = [start + ":"]
+
+        with_ = util.attr(self, "with_")
         if with_:
             rv.append(util.indent(f"with {with_}"))
-        if statement_start:
-            if not isinstance(statement_start, (Label, Menu)):
-                if not has_caption:
-                    raise NotImplementedError
-                rv.append(util.indent(util.get_code(statement_start, **kwargs)))
+
+        attrset = util.attr(self, "set")
         if attrset:
             rv.append(util.indent(f"set {attrset}"))
+
+        say = util.attr(kwargs, "menu_say")
+        if say:
+            rv.append(util.indent(util.get_code(say, **kwargs)))
+
+        items = util.attr(self, "items")
+        item_arguments = util.attr(self, "item_arguments")
         for idx, (say, cond, expr) in enumerate(items):
-            start = translation.encode_say_string(say)
+            sel = translation.encode_say_string(say)
             if item_arguments:
                 argument = item_arguments[idx]
                 # argument may None
                 if argument:
-                    start += f"{util.get_code(argument,**kwargs)}"
+                    sel += f"{util.get_code(argument,**kwargs)}"
             if cond and cond != "True":
-                start += f" if {util.get_code(cond,**kwargs)}"
-            rv.append(util.indent(util.label_code(start, expr, **kwargs)))
+                sel += f" if {util.get_code(cond,**kwargs)}"
+            # a empty expr means a caption
+            rv.append(util.indent(util.label_code(sel, expr, **kwargs)))
+        if len(rv) == 1:
+            rv.append("pass")  # if no items, add a pass statement
+        rv.append("")  # add a blank line after menu
         return "\n".join(rv)
 
 
 class Jump(Node):
+    """
+    https://www.renpy.org/doc/html/label.html#jump-statement
+    """
 
     def get_code(self, **kwargs) -> str:
         rv = "jump"
         expression = util.attr(self, "expression")
-        if expression and expression != True:
+        if expression is True:
+            rv += " expression"
+        elif expression:  # maybe backward compatibility?
             rv += f" {util.get_code(expression, **kwargs)}"
         target = util.attr(self, "target")
         if target:
@@ -465,6 +597,10 @@ class Jump(Node):
 
 
 class Pass(Node):
+    """
+    pass
+    """
+
     def get_code(self, **kwargs) -> str:
         # return ""
         # TODO: check if this is correct
@@ -493,17 +629,24 @@ class While(Node):
 class If(Node):
 
     def get_code(self, **kwargs) -> str:
-        rv = []
-        for index, (cond, body) in enumerate(self.entries):
-            body_code = util.indent(util.get_code(body, **kwargs))
+        rv = [""]  # a blank line at the start
+        entries = util.attr(self, "entries")
+        for index, (cond, body) in enumerate(entries):
+            if cond is None:
+                logging.warning(
+                    "Unexpected None condition in if statement at %s:%s",
+                    self.filename,
+                    self.linenumber,
+                )
+            block = util.indent(util.get_code(body, **kwargs))
             if index == 0:
-                rv.append(f"if {cond}:\n{body_code}")
+                rv.append(f"if {cond}:\n{block}")
                 continue
-            if cond and cond != "True":
-                rv.append(f"elif {cond}:\n{body_code}")
-            else:
-                rv.append(f"else:\n{body_code}")
-                break
+            if index == len(entries) - 1:
+                rv.append(f"else:\n{block}")
+                continue
+            rv.append(f"elif {cond}:\n{block}")
+        rv.append("")  # add a blank line after if statement
         return "\n".join(rv)
 
 
@@ -543,13 +686,15 @@ define -2 gui.accent_color = '#ffdd1e'
 class Define(Node):
 
     def get_code(self, **kwargs) -> str:
-        store = util.attr(self, "store")
 
         start = "define"
-        varname = self.varname
-        store_name = parse_store_name(store)
+        priority = util.attr(self, "priority")
+        if priority:
+            start += f" {priority}"
+        store_name = parse_store_name(util.attr(self, "store"))
         if store_name:
-            varname = f"{store_name}.{varname}"
+            start += f" {store_name}"
+        varname = util.attr(self, "varname")
         operator = "="
         if getattr(self, "operator", None):
             operator = self.operator
@@ -563,12 +708,9 @@ default_statements = []
 class Default(Node):
 
     def get_code(self, **kwargs) -> str:
-        varname = self.varname
         # trim store or store. prefix
-        st = self.store.lstrip("store.")
-        if st and st != "store":
-            varname = f"{st}.{varname}"
-        return f"default {varname} = {util.get_code(self.code,**kwargs)}"
+        st = parse_store_name(util.attr(self, "store"))
+        return f"default {st}.{self.varname} = {util.get_code(self.code,**kwargs)}"
 
 
 # https://www.renpy.org/doc/html/screens.html#screen-language
@@ -588,6 +730,10 @@ class Translate(Node):
     """
 
     def get_code(self, **kwargs) -> str:
+        language = util.attr(self, "language")
+        identifier = util.attr(self, "identifier")
+        if not language and not identifier:
+            return ""
         start = f"translate {self.language} {self.identifier}"
         if getattr(self, "alternate", None):
             start += f" alternate {self.alternate}"
@@ -636,6 +782,19 @@ class TranslateBlock(Node):
         return util.get_code(self.block, **kwargs)
 
 
+class TranslateSay(Node):
+    """
+    translate say:
+        "Hello" "Bonjour"
+    """
+
+    def get_code(self, **kwargs) -> str:
+        old, new = util.attr(self, "old"), util.attr(self, "new")
+        if old or new:
+            return f'translate say:\n{util.indent(f"{self.old} {self.new}")}'
+        return ""
+
+
 class TranslateEarlyBlock(TranslateBlock):
     def get_code(self, **kwargs) -> str:
         for item in self.block:
@@ -667,14 +826,12 @@ class Style(Node):
     """
 
     def get_code(self, **kwargs) -> str:
-        properties = self.properties.copy()
         start = f"style {self.style_name}"
+        properties = self.properties.copy()
+
         parent = util.attr(self, "parent")
         if parent:
             start += f" is {parent}"
-        variant = util.attr(self, "variant")
-        if variant:
-            properties["variant"] = variant
         clear = util.attr(self, "clear")
         if clear:
             properties["clear"] = None
@@ -683,12 +840,20 @@ class Style(Node):
             properties["take"] = take
         delattr = util.attr(self, "delattr")
         if delattr:
-            raise NotImplementedError
-        if properties:
-            start += ":"
-        rv = [start]
-        if properties:
-            rv.append(util.indent(util.get_code_properties(properties, newline=True)))
+            for d in delattr:
+                properties["delattr"] = d
+
+        variant = util.attr(self, "variant")
+        if variant:
+            properties["variant"] = variant
+
+        if not properties:
+            return start
+        if len(properties) < 3:
+            return f"{start} {util.get_code_properties(properties)}"
+        rv = [start + ":"]
+        rv.append(util.indent(util.get_code_properties(properties, newline=True)))
+        rv.append("")  # add a blank line after style
         return "\n".join(rv)
 
 
