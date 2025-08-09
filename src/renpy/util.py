@@ -11,7 +11,6 @@ def indent(code: str, level: int = 1) -> str:
     Args:
         code: The string to indent
         level: Number of indentation levels to apply (default: 1)
-        newline: If True, adds a newline after each indented line
 
     Returns:
         The indented string
@@ -19,15 +18,10 @@ def indent(code: str, level: int = 1) -> str:
     if not code:
         return ""
     indent_str = IDENT_CHAR * level
-
-    # Handle multiline strings more efficiently
-    if "\n" not in code:
-        return indent_str + code if code.strip() else code
-
-    # Use list comprehension for better performance
-    return "\n".join(
-        indent_str + line if line.strip() else line for line in code.splitlines()
-    )
+    # add indentation to each non-empty line
+    # keep empty lines as they are
+    rv = [indent_str + line if line.strip() else line for line in code.split("\n")]
+    return "\n".join(rv)
 
 
 def get_code_properties(props: tuple | dict, newline: bool = False, **kwargs) -> str:

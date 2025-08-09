@@ -305,7 +305,6 @@ class Python(Node):
             start += " hide"
         rv = [start + ":"]
         rv.append(util.indent(f"{inner_code}"))
-        rv.append("")  # add a blank line after python block
         return "\n".join(rv)
 
 
@@ -574,7 +573,6 @@ class Menu(Node):
             rv.append(util.indent(util.label_code(sel, expr, **kwargs)))
         if len(rv) == 1:
             rv.append("pass")  # if no items, add a pass statement
-        rv.append("")  # add a blank line after menu
         return "\n".join(rv)
 
 
@@ -646,7 +644,6 @@ class If(Node):
                 rv.append(f"else:\n{block}")
                 continue
             rv.append(f"elif {cond}:\n{block}")
-        rv.append("")  # add a blank line after if statement
         return "\n".join(rv)
 
 
@@ -853,7 +850,6 @@ class Style(Node):
             return f"{start} {util.get_code_properties(properties)}"
         rv = [start + ":"]
         rv.append(util.indent(util.get_code_properties(properties, newline=True)))
-        rv.append("")  # add a blank line after style
         return "\n".join(rv)
 
 

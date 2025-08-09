@@ -1,17 +1,15 @@
 # rpycdec
 
-A tools for decompiling and translating Ren'py compiled script files (.rpyc and .rpymc).
+A tool for decompiling Ren'py compiled script files (.rpyc and .rpymc).
 
-## How it works
+## Features
 
-All rpyc files are compiled from rpy files, renpy SDK read every file and parse it to AST object(renpy), and then use pickle to serialize the AST to rpyc file. So we use pickle to deserialize the rpyc file to AST, and then restore the rpy file from AST.
+- Decompile .rpyc and .rpymc files to readable Python code
+- Extract RPA archives
+- Parse translations from .rpyc and .rpymc files to `tl/{language}/` directories
+- Support for multiple Ren'py versions (7.x, 8.x)
 
-We created a fake "renpy" package(unlikely unrpyc) and it's ast objects to make the pickle can be deserialized correctly.
-Another reason to create a fake "renpy" package is that we can separate code generate logic (the `get_code(...)` function) to each AST object, it will be easier to future maintain and for multi-version renpy support.
-
-The most difficult part is generating the rpy file from AST. Different renpy version has different AST structure also different grammar.
-
-## Install
+## Installation
 
 Install with pip:
 
@@ -29,45 +27,57 @@ pip install .
 
 ## Usage
 
-Decompile a file:
+### Command Line Interface
+
+Decompile a single file:
 
 ```sh
-rpycdec decompile <path to rpyc file or dir>
+rpycdec decompile script.rpyc
 ```
 
-Extract RPA archive
+Decompile all files in a directory:
 
 ```sh
-rpycdec unrpa <path to rpa file>
+rpycdec decompile /path/to/game/
 ```
 
-### Library usage
+Extract RPA archive:
+
+```sh
+rpycdec unrpa archive.rpa
+```
+
+Extract translations:
+
+```sh
+rpycdec extract_translations /path/to/game/ --language chinese
+```
+
+### Library Usage
 
 ```python
-from rpycdec import decompile, translate
+from rpycdec import decompile, extract_rpa
 
 # decompile a file
-decompile(input_file, output_file)
+with open('script.rpyc', 'rb') as input_file, open('script.rpy', 'wb') as output_file:
+    decompile(input_file, output_file)
 
-# extract RPA archive
-extract_rpa(file_steam, output_dir)
-
-# decompile and translate a file
-translate(input_file, output_file)
+# Extract RPA archive
+with open('archive.rpa', 'rb') as f:
+    extract_rpa(f, './extracted/')
 ```
 
-## Contributing
-
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
-
-## FAQ
+## Troubleshooting
 
 - **Q: It always raise pickle `import ** \nModuleNotFoundError: No module named '**\*'` error.**
 
   A: It's because the our fake packages("renpy","store") is not contains the object you want to decompile. Please open an issue and tell us the renpy version and the rpyc file you want to decompile. Join our telegram group to get help also be better.
 
-## Community
+## Contributing
 
-Welcome to join our community to discuss and get help.
+Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
-- [Telegram Group](https://t.me/rpycdec)
+## Community & Support
+
+- [GitHub Issues](https://github.com/cnfatal/rpycdec/issues) - Bug reports and feature requests
+- [Telegram Group](https://t.me/rpycdec) - Community discussion and help

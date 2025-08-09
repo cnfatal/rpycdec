@@ -2,6 +2,7 @@ import argparse
 import logging
 from rpycdec.decompile import decompile
 from rpycdec.rpa import extract_rpa
+from rpycdec.save import extract_save, restore_save
 from rpycdec.translate import extract_translation
 
 
@@ -25,7 +26,7 @@ def extract_rpa_files(srcs: list[str], **kwargs):
             extract_rpa(f)
 
 
-def run_extract_translation(srcs: list[str], language: str = "None"):
+def run_extract_translations(srcs: list[str], language: str = "None"):
     """
     extract translations from rpy files.
     """
@@ -50,24 +51,50 @@ def main():
     decompile_parser = subparsers.add_parser("decompile", help="decompile rpyc file")
     decompile_parser.add_argument("src", nargs=1, help="rpyc file or directory")
     decompile_parser.add_argument(
-        "--dissemble", "-d", action="store_true", help="disassemble rpyc file"
+        "--disassemble", "-d", action="store_true", help="disassemble rpyc file"
     )
-    decompile_parser.set_defaults(func=decompile_files)
+    decompile_parser.set_defaults(
+        func=lambda args: decompile_files(args.src, **vars(args))
+    )
 
     unrpa_parser = subparsers.add_parser("unrpa", help="extract rpa archive")
-    unrpa_parser.add_argument("src", nargs=1, help="rpa archive")
-    unrpa_parser.set_defaults(func=extract_rpa_files)
-
-    extract_translation_parser = subparsers.add_parser(
-        "extract_translation", help="extract translations from rpy files"
+    unrpa_parser.add_argument("file", nargs=1, help="rpa archive")
+    unrpa_parser.set_defaults(
+        func=lambda args: extract_rpa_files(args.file, **vars(args))
     )
-    extract_translation_parser.add_argument(
+
+    extract_tl_parser = subparsers.add_parser(
+        "extract_translations", help="extract translations from rpy files"
+    )
+    extract_tl_parser.add_argument(
         "--language", "-l", default="None", help="translation language"
     )
-    extract_translation_parser.add_argument(
-        "src", nargs=1, help="rpy file or directory"
+    extract_tl_parser.add_argument("path", nargs=1, help="rpy file or directory")
+    extract_tl_parser.set_defaults(
+        func=lambda args: run_extract_translations(args.path, args.language)
     )
-    extract_translation_parser.set_defaults(func=run_extract_translation)
+
+    save_parser = subparsers.add_parser("save", help="save operations")
+    save_subparsers = save_parser.add_subparsers(
+        title="save subcommands", dest="save_command", help="save subcommand help"
+    )
+    save_extract_parser = save_subparsers.add_parser(
+        "extract", help="extract save data"
+    )
+    save_extract_parser.add_argument("path", nargs=1, help="save-file path")
+    save_extract_parser.add_argument("dest", nargs="?", help="extract to directory")
+    save_extract_parser.set_defaults(
+        func=lambda args: extract_save(args.path[0], args.dest, **vars(args))
+    )
+
+    save_restore_parser = save_subparsers.add_parser(
+        "restore", help="restore save data from extracted directory"
+    )
+    save_restore_parser.add_argument("path", nargs=1, help="extracted directory")
+    save_restore_parser.add_argument("dest", nargs=1, help="restore to save-file")
+    save_restore_parser.set_defaults(
+        func=lambda args: restore_save(args.path[0], args.dest[0])
+    )
 
     args = argparser.parse_args()
     if args.verbose:
@@ -75,4 +102,4 @@ def main():
     if not args.command:
         argparser.print_help()
         return
-    args.func(args.src, **vars(args))
+    args.func(args)

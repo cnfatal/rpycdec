@@ -124,7 +124,6 @@ class SLDisplayable(SLBlock):
         if keyword:
             rv.append(util.indent(util.get_code_properties(keyword, newline=True)))
         rv.append(util.indent(util.get_code(children, **kwargs)))
-        rv.append("")  # add a newline at the end
         return "\n".join(rv)
 
 
@@ -246,7 +245,7 @@ class SLUse(SLNode):
             return util.label_code(start, self.block, **kwargs)
         if self.ast:
             return util.label_code(start, self.ast, **kwargs)
-        return start + "\n"
+        return start
 
 
 # https://www.renpy.org/doc/html/screens.html#use-and-transclude

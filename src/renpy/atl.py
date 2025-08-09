@@ -49,7 +49,7 @@ class RawBlock(RawStatement):
                 linear 5.0 xalign 1.0
                 repeat
             """
-            rv.append(util.indent("animation"))
+            rv.append("animation")
 
         statements = self.statements
         if statements:
@@ -132,7 +132,6 @@ class RawMultipurpose(RawStatement):
         if len(rv) < 3:
             # if only few properties, return them in one line
             return start + " " + " ".join(rv)
-        rv.append("")  # add a blank line after properties
         return start + ":\n" + util.indent(" ".join(rv))
 
 
