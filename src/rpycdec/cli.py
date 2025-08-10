@@ -4,7 +4,7 @@ import os
 from rpycdec.decompile import decompile
 from rpycdec.rpa import extract_rpa
 from rpycdec.save import extract_save, restore_save
-from rpycdec.translate import extract_translation
+from rpycdec.translate import translate
 
 
 logger = logging.getLogger(__name__)
@@ -27,12 +27,12 @@ def extract_rpa_files(srcs: list[str], **kwargs):
             extract_rpa(f, dir=os.path.dirname(src))
 
 
-def run_extract_translations(srcs: list[str], language: str = "None", **kwargs):
+def run_translate(srcs: list[str], source_lang: str, target_lang: str, **kwargs):
     """
     extract translations from rpy files.
     """
     for src in srcs:
-        extract_translation(src, language, **kwargs)
+        translate(src, source_lang, target_lang, **kwargs)
 
 
 def main():
@@ -65,14 +65,16 @@ def main():
     )
 
     extract_tl_parser = subparsers.add_parser(
-        "extract_translations", help="extract translations from rpy files"
+        "translate",
+        help="""translate files in tl/<language> directory
+        rpycdec translate game/tl/None --src en --dest chinese
+        """,
     )
-    extract_tl_parser.add_argument(
-        "--language", "-l", default="None", help="translation language"
-    )
-    extract_tl_parser.add_argument("path", nargs=1, help="rpy file or directory")
+    extract_tl_parser.add_argument("--src", help="source language", default="en")
+    extract_tl_parser.add_argument("--dest", help="target language", default="zh")
+    extract_tl_parser.add_argument("path", nargs=1, help="tl/<language> directory")
     extract_tl_parser.set_defaults(
-        func=lambda args: run_extract_translations(args.path, args.language)
+        func=lambda args: run_translate(args.path, args.src, args.dest)
     )
 
     save_parser = subparsers.add_parser("save", help="save operations")

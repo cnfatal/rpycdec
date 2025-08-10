@@ -762,6 +762,10 @@ class TranslateString(Node):
         new ""
     """
 
+    language: str
+    old: str
+    new: str
+
     def get_code(self, **kwargs) -> str:
         language = util.attr(self, "language")
         if not language:
