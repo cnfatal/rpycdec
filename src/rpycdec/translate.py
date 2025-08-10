@@ -85,7 +85,7 @@ def translate_placeholder(line, fn: Callable[[str], str]) -> str:
 
 
 def walk_node(
-    node, target_lang: str, callback: Callable[[str, str, str], str], **kwargs
+    node, callback: Callable[[str, str, str], str], target_lang: str = None, **kwargs
 ):
     """
     callback: (kind, old, new) -> translated
@@ -93,10 +93,12 @@ def walk_node(
     walk ast node and call callback on nodes that contains text/expr/block
     """
     if isinstance(node, renpy.ast.Translate):
-        target_lang and node.language = target_lang 
+        if target_lang:
+            node.language = target_lang
     elif isinstance(node, renpy.ast.TranslateString):
         node.new = callback(("text", node.old, node.new))
-        target_lang and node.language = target_lang
+        if target_lang:
+            node.language = target_lang
     elif isinstance(node, renpy.ast.TranslateBlock):
         pass
     elif isinstance(node, renpy.ast.Say):

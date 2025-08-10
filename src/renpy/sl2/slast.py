@@ -299,6 +299,7 @@ class SLScreen(SLBlock):
         # keyword
         if properties:
             rv.append(util.indent(util.get_code_properties(properties, newline=True)))
+            rv.append("")  # add a newline after keyword
         # children
         children = util.attr(self, "children")
         if children:

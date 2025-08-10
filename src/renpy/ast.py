@@ -47,7 +47,7 @@ def get_imspec_expr(imspec, **kwargs) -> str:
         rv.append(f"at {at_list}")
 
     if tag:
-        rv.append(f"tag {util.get_code(tag, **kwargs)}")
+        rv.append(f"as {util.get_code(tag, **kwargs)}")
 
     if zorder:
         rv.append(f"zorder {util.get_code(zorder, **kwargs)}")
@@ -381,7 +381,7 @@ class Show(Node):
 
     def get_code(self, **kwargs) -> str:
         start = "show"
-        name = get_imspec_name(self.imspec)
+        name = get_imspec_expr(self.imspec)
         if name:
             start += f" {name}"
         return util.label_code(start, util.attr(self, "atl"), **kwargs)
