@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 from rpycdec.decompile import decompile
 from rpycdec.rpa import extract_rpa
 from rpycdec.save import extract_save, restore_save
@@ -14,7 +15,7 @@ def decompile_files(srcs: list[str], **kwargs):
     decompile rpyc file or directory.
     """
     for src in srcs:
-        decompile(src, dis=kwargs.get("dissemble", False))
+        decompile(src, dis=kwargs.get("disassemble", False))
 
 
 def extract_rpa_files(srcs: list[str], **kwargs):
@@ -23,15 +24,15 @@ def extract_rpa_files(srcs: list[str], **kwargs):
     """
     for src in srcs:
         with open(src, "rb") as f:
-            extract_rpa(f)
+            extract_rpa(f, dir=os.path.dirname(src))
 
 
-def run_extract_translations(srcs: list[str], language: str = "None"):
+def run_extract_translations(srcs: list[str], language: str = "None", **kwargs):
     """
     extract translations from rpy files.
     """
     for src in srcs:
-        extract_translation(src, language)
+        extract_translation(src, language, **kwargs)
 
 
 def main():

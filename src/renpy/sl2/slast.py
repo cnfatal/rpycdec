@@ -106,6 +106,14 @@ class SLDisplayable(SLBlock):
         if not start:
             raise Exception("displayable not found")
 
+        variable = util.attr(self, "variable")
+        if variable:
+            start += f" as {variable}"
+
+        tag = util.attr(self, "tag")
+        if tag:
+            start += f" tag {tag}"
+
         positional = util.attr(self, "positional")
         if positional:
             if isinstance(positional, list):
@@ -291,14 +299,12 @@ class SLScreen(SLBlock):
         # keyword
         if properties:
             rv.append(util.indent(util.get_code_properties(properties, newline=True)))
-            rv.append("")  # add a newline after keyword
         # children
         children = util.attr(self, "children")
         if children:
             rv.append(util.indent(util.get_code(children, **kwargs)))
         if len(rv) == 1:
             rv.append("pass")
-        rv.append("")  # add a newline at the end
         return "\n".join(rv)
 
 

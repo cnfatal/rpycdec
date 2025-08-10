@@ -37,7 +37,7 @@ def get_imspec_expr(imspec, **kwargs) -> str:
     if expression:
         rv.append(f"expression {util.get_code(expression, **kwargs)}")
     else:
-        rv.append(name[0])
+        rv.append(" ".join(name))
 
     if layer:
         rv.append(f"onlayer {layer}")
@@ -238,7 +238,6 @@ class Init(Node):
             return f"{start} {inner_code}"
         rv = [start + ":"]
         rv.append(util.indent(inner_code))
-        rv.append("")  # add a blank line after init block
         return "\n".join(rv)
 
 
@@ -471,15 +470,18 @@ class Call(Node):
 
     def get_code(self, **kwargs) -> str:
         start = "call"
+
         expression = util.attr(self, "expression")
         if expression:
             if expression == True:
                 start += " expression"
             else:
                 start += f" expression {util.get_code(expression,**kwargs)}"
+
         label = util.attr(self, "label")
         if label:
             start += f" {label}"
+
         arguments = util.attr(self, "arguments")
         if arguments:
             start += f"{util.get_code(arguments,**kwargs)}"
@@ -627,7 +629,7 @@ class While(Node):
 class If(Node):
 
     def get_code(self, **kwargs) -> str:
-        rv = [""]  # a blank line at the start
+        rv = []
         entries = util.attr(self, "entries")
         for index, (cond, body) in enumerate(entries):
             if cond is None:
@@ -729,18 +731,20 @@ class Translate(Node):
     def get_code(self, **kwargs) -> str:
         language = util.attr(self, "language")
         identifier = util.attr(self, "identifier")
+        alternate = util.attr(self, "alternate")
         if not language and not identifier:
             return ""
-        start = f"translate {self.language} {self.identifier}"
-        if getattr(self, "alternate", None):
-            start += f" alternate {self.alternate}"
+        start = f"translate {language} {identifier}"
+        if alternate:
+            start += f" alternate {alternate}"
         if self.block:
             start += ":"
         rv = [start]
         for item in self.block:
+            callkwargs = kwargs.copy()
             # inject translate language and label to all children
-            kwargs.update({"language": self.language, "label": self.identifier})
-            rv.append(util.indent(util.get_code(item, **kwargs)))
+            callkwargs.update({"language": language, "label": identifier})
+            rv.append(util.indent(util.get_code(item, **callkwargs)))
         return "\n".join(rv)
 
 

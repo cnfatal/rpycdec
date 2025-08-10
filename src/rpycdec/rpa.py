@@ -23,6 +23,7 @@ def start_to_bytes(left: list | None) -> bytes:
 
 
 def extract_rpa(r: BufferedIOBase, dir: str | None = None):
+    dir = dir or "."
     magic = read_util(r, 0x20)
     if magic != b"RPA-3.0":
         print("Not a Ren'Py archive.")
@@ -40,8 +41,6 @@ def extract_rpa(r: BufferedIOBase, dir: str | None = None):
             for offset, dlen, *left in v
         ]
 
-    if not dir:
-        dir = os.path.splitext(r.name)[0]
     for filename, entries in index.items():
         data = bytearray()
         for offset, dlen, start in entries:

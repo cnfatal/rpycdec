@@ -51,7 +51,7 @@ def walk_node(node, callback: Callable[[str, str], str], **kwargs):
             node.items[i] = tuple(_li)
 
 
-def parse_translations(game_dir: str, files: list[str]) -> dict[str, list[str]]:
+def parse_translations(game_dir: str, files: list[str]) -> dict[str, list[(str, str)]]:
     """
     Translate files and return a map of filename and code.
     """
@@ -78,16 +78,21 @@ def parse_translations(game_dir: str, files: list[str]) -> dict[str, list[str]]:
                 **kwargs,
             ),
         )
-    filename_translations: dict[str, list[str]] = {}
+    filename_translations: dict[str, list[(str, str)]] = {}
     for value, filename in translations_dict.items():
         items = filename_translations.setdefault(filename, [])
         if value not in items:
-            items.append(value)
+            items.append((value, value))
     return filename_translations
 
 
-def write_translation_file(
-    game_dir: str, filename: str, language: str, translations: list[str]
+def translate_text(text: list[str], pipeline, **kwargs) -> list[str]:
+    result = pipeline(text, **kwargs)
+    return [item["translation_text"] for item in result]
+
+
+def write_translation_strings_file(
+    game_dir: str, filename: str, language: str, translations: list[(str, str)]
 ):
     """
     write translations to a file.
@@ -96,22 +101,43 @@ def write_translation_file(
     logger.info("writing translations to %s", tlfile)
     os.makedirs(os.path.dirname(tlfile), exist_ok=True)
     content = f"translate {language} strings:\n"
-    for v in translations:
-        content += renpy.util.indent(f"old {encode_say_string(v)}\n")
-        content += renpy.util.indent(f"new {encode_say_string(v)}\n")
+    for old, new in translations:
+        content += renpy.util.indent(f"old {encode_say_string(old)}\n")
+        content += renpy.util.indent(f"new {encode_say_string(new)}\n")
         content += "\n"
     utils.write_file(tlfile, content)
 
 
-def extract_translation(game_dir: str, language: str = "None") -> None:
+def extract_translation(game_dir: str, language: str = "None", **kwargs) -> None:
     """
     extract translations from game directory.
     """
     matches = utils.match_files(game_dir, r".*\.rpym?c$")
     extracted = parse_translations(game_dir, matches)
     logger.info("loaded %d translations", len(extracted))
+    if language and language != "None":
+        from transformers import pipeline
+
+        # Select appropriate translation model based on target language
+        if language.lower() in ["zh", "chinese"]:
+            model = "Helsinki-NLP/opus-mt-en-zh"
+        elif language.lower() in ["ja", "japanese"]:
+            model = "Helsinki-NLP/opus-mt-en-ja"
+        else:
+            model = "Helsinki-NLP/opus-mt-en-zh"
+        logger.info("using translation model: %s", model)
+        pipe = pipeline("translation", model=model)
+
+        for filename, translations in extracted.items():
+            to_translate = [old for old, new in translations]
+            logger.info("translating %d strings in %s", len(to_translate), filename)
+            translated = translate_text(to_translate, pipe, **kwargs)
+            extracted[filename] = [
+                (old, new) for old, new in zip(to_translate, translated)
+            ]
+
     for filename, translations in extracted.items():
         if not translations:
             logger.warning("no translations found in %s", filename)
             continue
-        write_translation_file(game_dir, filename, language, translations)
+        write_translation_strings_file(game_dir, filename, language, translations)

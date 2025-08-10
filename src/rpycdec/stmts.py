@@ -81,9 +81,9 @@ def read_rpyc_data(file: io.BufferedReader, slot):
     return zlib.decompress(data)
 
 
-def load(data: io.BufferedReader, **kwargs) -> Node | None:
+def load(data: io.BufferedReader, slots: list[int] = [1, 2], **kwargs) -> Node | None:
     # 1 is statements before translation, 2 is after translation.
-    for slot in [1, 2]:
+    for slot in slots:
         try:
             bindata = read_rpyc_data(data, slot)
         except Exception as e:
@@ -112,5 +112,6 @@ def load_file(filename, **kwargs) -> Node | None:
         raise NotImplementedError(
             "unsupport for pase rpy file or use renpy.parser.parse() in renpy's SDK"
         )
+    slots = [2, 1] if kwargs.get("pre_translated", False) else [1, 2]
     with open(filename, "rb") as file:
-        return load(file, **kwargs)
+        return load(file, slots=slots, **kwargs)

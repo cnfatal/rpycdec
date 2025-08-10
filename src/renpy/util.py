@@ -145,8 +145,17 @@ def get_code(node, **kwargs) -> str:
                     continue
 
             if isinstance(item, ast.Return):
-                # return at the end of file is ignored
-                if len(node) > 1 and not items and not attr(item, "expression"):
+                if (
+                    # it cant tell out an anto appended Return or an empty one
+                    # currently we must not ignore
+                    False
+                    and len(node) > 1
+                    and not items
+                    and not attr(item, "expression")
+                    # omit the return after While may cause unexpected behavior
+                    and not any(isinstance(n, ast.While) for n in node)
+                ):
+                    # ignore the return
                     continue
 
             # if isinstance(item, ast.Init):
@@ -199,4 +208,4 @@ def label_code(label: str, child, **kwargs) -> str:
     """
     if not child:
         return label
-    return f"{label}:\n{indent(get_code(child, **kwargs))}\n"
+    return f"{label}:\n{indent(get_code(child, **kwargs))}"
