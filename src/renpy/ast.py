@@ -384,6 +384,9 @@ class Show(Node):
         name = get_imspec_expr(self.imspec)
         if name:
             start += f" {name}"
+        with_expr = kwargs.get("with_expr", None)
+        if with_expr:
+            start += f" with {util.get_code(with_expr, **kwargs)}"
         return util.label_code(start, util.attr(self, "atl"), **kwargs)
 
 
@@ -418,7 +421,7 @@ class Scene(Node):
     https://www.renpy.org/doc/html/displaying_images.html#scene-statement
 
     example:
-    scene bg room
+        scene bg room [with dissolve]
     """
 
     def get_code(self, **kwargs) -> str:
@@ -429,6 +432,9 @@ class Scene(Node):
             start += f" {get_imspec_expr(imspec, **kwargs)}"
         elif layer:
             start += f" onlayer {layer}"
+        with_expr = kwargs.get("with_expr", None)
+        if with_expr:
+            start += f" with {util.get_code(with_expr, **kwargs)}"
         return util.label_code(start, util.attr(self, "atl"), **kwargs)
 
 
@@ -436,9 +442,12 @@ class Hide(Node):
 
     def get_code(self, **kwargs) -> str:
         start = "hide"
-        name = get_imspec_name(self.imspec)
+        name = get_imspec_expr(self.imspec)
         if name:
             start += f" {name}"
+        with_expr = kwargs.get("with_expr", None)
+        if with_expr:
+            start += f" with {util.get_code(with_expr, **kwargs)}"
         return start
 
 
@@ -539,9 +548,6 @@ class Menu(Node):
             else:
                 start += f" {label}"
 
-        # if statement_start:
-        #     if isinstance(statement_start, Label):
-        #         start += f" {statement_start.get_name()}"
         arguments = util.attr(self, "arguments")
         if arguments:
             start += f" {util.get_code(arguments,**kwargs)}"

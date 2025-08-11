@@ -1,7 +1,7 @@
 from . import ast
 from collections import deque
 
-IDENT_CHAR = "  "
+IDENT_CHAR = "    "
 
 
 def indent(code: str, level: int = 1) -> str:
@@ -81,6 +81,7 @@ def get_code(node, **kwargs) -> str:
         if node type is not implemented or some attributes unable to handle.
 
     """
+
     if isinstance(node, str):
         return node
     if isinstance(node, list):
@@ -89,44 +90,66 @@ def get_code(node, **kwargs) -> str:
         while items:
             item = items.popleft()
 
-            if isinstance(item, ast.Say):
+            # [Say|UserStatement?, Menu]
+            if isinstance(item, ast.Say) or isinstance(item, ast.UserStatement):
                 next = items[0] if items else None
-                if isinstance(next, ast.Menu):
+                if isinstance(next, ast.Menu) and attr(next, "statement_start") == item:
                     menu = items.popleft()
                     call_kwargs = kwargs.copy()
                     call_kwargs["menu_say"] = item
                     rv.append(get_code(menu, **call_kwargs))
                     continue
 
+            # [Label, Say|UserStatement?, Menu]
             if isinstance(item, ast.Label):
-                # [Label,[Say|UserStatement],Menu]
                 next = items[0] if items else None
+                # [Label, Say|UserStatement, Menu]
                 if isinstance(next, ast.Say) or isinstance(next, ast.UserStatement):
-                    next = items[1] if len(items) > 1 else None
-                    if isinstance(next, ast.Menu):
-                        call_kwargs = kwargs.copy()
-                        call_kwargs["menu_label"] = items
-                        call_kwargs["menu_say"] = items.popleft()
+                    next_next = items[1] if len(items) > 1 else None
+                    if (
+                        isinstance(next_next, ast.Menu)
+                        and attr(next_next, "statement_start") == item
+                    ):
+                        say = items.popleft()
                         menu = items.popleft()
+                        call_kwargs = kwargs.copy()
+                        call_kwargs["menu_label"] = item
+                        call_kwargs["menu_say"] = say
                         rv.append(get_code(menu, **call_kwargs))
                         continue
-                if isinstance(next, ast.Menu):
-                    # [Label, Menu]
+                # [Label, Menu]
+                if isinstance(next, ast.Menu) and attr(next, "statement_start") == item:
+                    menu = items.popleft()
                     call_kwargs = kwargs.copy()
                     call_kwargs["menu_label"] = item
-                    menu = items.popleft()
                     rv.append(get_code(menu, **call_kwargs))
                     continue
 
             if isinstance(item, ast.With):
-                # [ast.With(loc, "None", expr), node, ast.With(loc, expr)]
+                # some node quoted by two ast.With if has with suffix expr, the sdk snippet:
+                #
+                # renpy.parser.parse_with(node):
+                #   if not "with":
+                #       return node
+                #       expr = simple_expression
+                #   return [ast.With(loc, "None", paired=expr), node, ast.With(loc, expr)]
+                #
+                # - ast.Scene
+                # - ast.Show
+                # - ast.Hide
                 expr, paired = attr(item, "expr"), attr(item, "paired")
                 if (not expr or expr == "None") and paired:
-                    next = items.popleft()
-                    rv.append(get_code(next, **kwargs))
-                    close_with = items.popleft()
-                    rv.append(get_code(close_with, **kwargs))
-                    continue
+                    next_next = items[1] if len(items) > 1 else None
+                    if (
+                        isinstance(next_next, ast.With)
+                        and attr(next_next, "expr") == paired
+                    ):
+                        node = items.popleft()
+                        close_with = items.popleft()
+                        call_kwargs = kwargs.copy()
+                        call_kwargs.update({"with_expr": attr(close_with, "expr")})
+                        rv.append(get_code(node, **call_kwargs))
+                        continue
 
             if isinstance(item, ast.Call):
                 # call = [Call, Label?, Pass]
@@ -157,6 +180,15 @@ def get_code(node, **kwargs) -> str:
                 ):
                     # ignore the return
                     continue
+
+                # if all left items are returns
+                if all(
+                    isinstance(n, ast.Return) and not attr(n, "expression")
+                    for n in items
+                ):
+                    # ignore all returns
+                    rv.append(get_code(item, **kwargs))
+                    break
 
             # if isinstance(item, ast.Init):
             # if item.priority == 500:
@@ -191,6 +223,8 @@ def get_block_code(node, **kwargs) -> str:
 
 
 def attr(item, key: str) -> str:
+    if isinstance(item, dict):
+        return item.get(key, None)
     if hasattr(item, key):
         return getattr(item, key)
     return None
