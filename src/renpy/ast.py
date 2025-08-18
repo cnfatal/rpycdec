@@ -158,37 +158,47 @@ class Say(Node):
     https://www.renpy.org/doc/html/dialogue.html#say-statement
     """
 
-    def get_code(self, **kwargs) -> str:
+    def get_code(self, dialogue_filter=None, **kwargs):
         rv = []
+
         who = util.attr(self, "who")
         if who:
             rv.append(who)
 
-        if getattr(self, "attributes", None):
-            rv.extend(self.attributes)
+        attributes = util.attr(self, "attributes")
+        if attributes is not None:
+            rv.extend(attributes)
 
         temporary_attributes = util.attr(self, "temporary_attributes")
         if temporary_attributes:
             rv.append("@")
             rv.extend(temporary_attributes)
 
-        rv.append(translation.encode_say_string(self.what))
+        what = util.attr(self, "what")
+        if dialogue_filter is not None:
+            what = dialogue_filter(what)
+
+        rv.append(translation.encode_say_string(what))
 
         interact = util.attr(self, "interact")
-        if interact is False:
+        if not interact:
             rv.append("nointeract")
 
-        with_ = util.attr(self, "with_")
-        if with_:
-            rv.append(f"with {with_}")
-
-        id = util.attr(self, "identifier")
-        if id:
-            rv.append(f"id {id}")
+        identifier = util.attr(self, "identifier")
+        explicit_identifier = util.attr(self, "explicit_identifier")
+        if identifier and explicit_identifier:
+            rv.append("id")
+            rv.append(identifier)
 
         arguments = util.attr(self, "arguments")
         if arguments:
             rv.append(util.get_code(arguments, **kwargs))
+
+        # This has to be at the end.
+        with_ = util.attr(self, "with_")
+        if with_:
+            rv.append("with")
+            rv.append(with_)
 
         return " ".join(rv)
 
