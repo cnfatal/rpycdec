@@ -114,15 +114,22 @@ class ArgumentInfo(object):
             raise NotImplementedError
         if getattr(self, "extrakw", None):
             raise NotImplementedError
-        if getattr(self, "extrapos", None):
-            raise NotImplementedError
+        extrapos = getattr(self, "extrapos", None)
+        if extrapos:
+            args.append(f"*{extrapos}")
         return "(" + ", ".join(args) + ")"
 
 
-class PyExpr(object):
+class PyExpr(str):
     """
     Represents a string containing python code.
     """
+
+    __slots__ = [
+        "filename",
+        "linenumber",
+        "py",
+    ]
 
     def __new__(cls, s, filename, linenumber, py=3):
         self = str.__new__(cls, s)
@@ -131,11 +138,11 @@ class PyExpr(object):
         self.py = py  # type: ignore
         return self
 
-    def get_code(self, **kwargs) -> str:
-        return self.expr
+    def __getnewargs__(self):
+        return (str(self), self.filename, self.linenumber, self.py)
 
-    def __str__(self):
-        return self.expr
+    def get_code(self, **kwargs) -> str:
+        return str(self)
 
 
 class PyCode(object):

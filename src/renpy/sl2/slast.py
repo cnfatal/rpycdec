@@ -1,3 +1,4 @@
+import logging
 from .. import ast, astsupport, ui, util
 
 
@@ -78,6 +79,7 @@ class SLDisplayable(SLBlock):
         # higher version use style instead of name
         name = getattr(self, "name", None)
         displayable = getattr(self, "displayable", None)
+        style = getattr(self, "style", None)
         start = ""
         if name:
             start = name
@@ -90,14 +92,17 @@ class SLDisplayable(SLBlock):
                 start = "on"
             else:
                 start = displable_name.replace("_", "")
-        else:
-            raise Exception("displayable not found")
-        if self.style:
+        if style:
             match start:
                 case "multibox":
-                    start = self.style
+                    start = style
                 case "window":
-                    start = self.style
+                    start = style
+        if not start:
+            logging.warning(
+                "warning: displayable not found, use textbutton instead, you may need fix it manually"
+            )
+            start = "textbutton"
         return start
 
     def get_code(self, **kwargs) -> str:

@@ -112,6 +112,7 @@ def load_file(filename, **kwargs) -> Node | None:
         raise NotImplementedError(
             "unsupport for pase rpy file or use renpy.parser.parse() in renpy's SDK"
         )
+    # slot 2 is for pre-translated scripts, slot 1 is for normal scripts
     slots = [2, 1] if kwargs.get("pre_translated", False) else [1, 2]
     with open(filename, "rb") as file:
         return load(file, slots=slots, **kwargs)
