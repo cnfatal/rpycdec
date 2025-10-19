@@ -15,7 +15,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dynamic = ["version"]
-dependencies = ["requests", "ratelimit"]
+dependencies = ["requests", "ratelimit", "tqdm"]
 
 [project.optional-dependencies]
 release = ["twine"]
