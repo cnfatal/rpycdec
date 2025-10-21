@@ -1,18 +1,6 @@
 import re
 
 
-class ScriptTranslator(object):
-    pass
-
-
-class Restructurer(object):
-    pass
-
-
-class StringTranslator(object):
-    pass
-
-
 def encode_say_string(s):
     """
     Encodes a string in the format used by Ren'Py say statements.

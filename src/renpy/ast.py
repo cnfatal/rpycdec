@@ -1,4 +1,9 @@
 import logging
+from typing import Any, Callable, ClassVar, Literal
+
+from renpy import config
+from renpy.atl import RawBlock
+from renpy.lexer import SubParse
 from . import translation, util
 
 
@@ -60,7 +65,77 @@ def get_imspec_expr(imspec, **kwargs) -> str:
 
 
 class Node(object):
-    pass
+    filename: str
+    linenumber: int
+
+    next: "Node | None"
+    """
+    Node that unconditionally follows this one in the abstract syntax tree,
+    or None if this node is the last one in the block.
+    """
+
+    translatable: ClassVar[bool] = False
+    """
+    True if this node is translatable, False otherwise.
+    (This can be set on the class or the instance.)
+    """
+    translation_relevant: ClassVar[bool] = False
+
+    @property
+    def name(self) -> str | tuple[Any, ...] | None:
+        """
+        The name property stores and retreives the name for the node.
+        This is one of:
+
+        * A string, when the node is a label.
+        * A tuple, in (filename, version, serial) format. This is stored efficently,
+          as it makes up most nodes in Ren'Py.
+        * Longer tuples, like (filename, version, serial, ...) are rare, but used.
+        * None, when the name is not known.
+        """
+
+        if self._name:
+            return self._name
+        elif self.name_version:
+            return (self.filename, self.name_version, self.name_serial)
+        else:
+            return None
+
+    @name.setter
+    def name(self, value: str | tuple[Any, ...] | None):
+        match value:
+            case (self.filename, int(version), int(serial)):
+                self._name = None
+                self.name_version = version
+                self.name_serial = serial
+            case _:
+                self._name = value
+
+    def __init__(self, loc: tuple[str, int] = ("", 0)):
+        """
+        Initializes this Node object.
+
+        `loc`
+            A (filename, physical line number) tuple giving the
+            logical line on which this Node node starts.
+        """
+        self.filename = loc[0]
+        self.linenumber = loc[1]
+        self.name = None
+        self.next = None
+
+    def get_translation_strings(self) -> list[tuple[int, str]]:
+        """
+        Return a possibly empty list of linenumber, string pairs of strings
+        that are additional translation strings for this node.
+        """
+        return []
+
+    def get_children(self, f: Callable[["Node"], Any]) -> None:
+        """
+        Calls `f` with this node and its children.
+        """
+        f(self)
 
 
 class ParameterInfo(object):
@@ -205,7 +280,7 @@ class Say(Node):
         with_ = util.attr(self, "with_")
         if with_:
             rv.append("with")
-            rv.append(with_)
+            rv.append(util.get_code(with_, **kwargs))
 
         return " ".join(rv)
 
@@ -223,6 +298,9 @@ class Init(Node):
     init offset = 42
 
     """
+
+    block: list[Node]
+    priority: int
 
     def get_code(self, **kwargs) -> str:
         if len(self.block) == 1:
@@ -257,6 +335,11 @@ class Init(Node):
         rv.append(util.indent(inner_code))
         return "\n".join(rv)
 
+    def get_children(self, f):
+        f(self)
+        for i in self.block:
+            i.get_children(f)
+
 
 class Label(Node):
     """
@@ -269,6 +352,12 @@ class Label(Node):
         "Here is 'sample2' label."
         "a = [a]"
     """
+
+    translation_relevant = True
+
+    block: list[Node]
+    parameters: ParameterInfo | None = None
+    hide: bool = False
 
     def get_name(self):
         """
@@ -291,6 +380,11 @@ class Label(Node):
         if not block:
             block = Pass()
         return util.label_code(start, block, **kwargs)
+
+    def get_children(self, f):
+        f(self)
+        for i in self.block:
+            i.get_children(f)
 
 
 class Python(Node):
@@ -538,6 +632,17 @@ class Menu(Node):
     https://www.renpy.org/doc/html/menus.html#in-game-menus
     """
 
+    translation_relevant = True
+
+    items: list[tuple[str, str, list[Node] | None]]
+    statement_start: Node  # type: ignore
+    set: str | None = None
+    with_: str | None = None
+    has_caption: bool = False
+    arguments: ArgumentInfo | None = None
+    item_arguments: list[ArgumentInfo | None] | None = None
+    rollback: str = "force"  # type: ignore
+
     def _is_caption(item):
         label, condition, block = item
         return condition == "True" and block is None
@@ -600,6 +705,31 @@ class Menu(Node):
             rv.append("pass")  # if no items, add a pass statement
         return "\n".join(rv)
 
+    def get_translation_strings(self):
+        rv = super().get_translation_strings()
+        for caption, _, block in self.items:
+            if config.old_substitutions:
+                caption = caption.replace("%%", "%")
+            if caption is None:
+                continue
+            # Empty lines after the caption will strill make
+            # this caption to be repoprted on wrong line,
+            # but it is still better than line number of the menu itself
+            # which can be hundreds of lines away.
+            if block:
+                loc = block[0].linenumber - 1
+            else:
+                loc = self.linenumber
+            rv.append((loc, caption))
+        return rv
+
+    def get_children(self, f):
+        f(self)
+        for _label, _condition, block in self.items:
+            if block:
+                for i in block:
+                    i.get_children(f)
+
 
 class Jump(Node):
     """
@@ -644,12 +774,21 @@ class While(Node):
         "It goes on and on, my compatriots."
     """
 
+    condition: str
+    block: list[Node]
+
     def get_code(self, **kwargs) -> str:
         start = f"while {self.condition}"
         return util.label_code(start, util.attr(self, "block"), **kwargs)
 
+    def get_children(self, f):
+        f(self)
+        for i in self.block:
+            i.get_children(f)
+
 
 class If(Node):
+    entries: list[tuple[str, list[Node]]]
 
     def get_code(self, **kwargs) -> str:
         rv = []
@@ -671,8 +810,26 @@ class If(Node):
             rv.append(f"elif {cond}:\n{block}")
         return "\n".join(rv)
 
+    def get_children(self, f):
+        f(self)
+        for _condition, block in self.entries:
+            for i in block:
+                i.get_children(f)
+
 
 class UserStatement(Node):
+    line: str
+    parsed: Any
+    block: list[Any] = []
+    translatable: bool = False  # type: ignore
+    code_block: list[Node] | None = None
+    translation_relevant: bool = False  # type: ignore
+    rollback: Literal["normal", "never", "force"] = "normal"
+    atl: "RawBlock | None" = None
+    subparses: list["SubParse"] = []
+    init_priority: int | None = None
+    init_offset: int | None = None
+
     def __new__(cls, *args, **kwargs):
         self = Node.__new__(cls)
         self.block = []
@@ -689,6 +846,26 @@ class UserStatement(Node):
         if self.block:
             rv.append(util.indent(util.get_block_code(self.block, **kwargs)))
         return "\n".join(rv)
+
+    def get_translation_strings(self) -> list[tuple[int, str]]:
+        rv = super().get_translation_strings()
+        if strings := self.call("translation_strings"):
+            for i in strings:
+                if not isinstance(i, tuple):
+                    i = (self.linenumber, i)
+                rv.append(i)
+        return rv
+
+    def get_children(self, f):
+        f(self)
+
+        if self.code_block is not None:
+            for i in self.code_block:
+                i.get_children(f)
+
+        for i in self.subparses:
+            for j in i.block:
+                j.get_children(f)
 
 
 class PostUserStatement(Node):
@@ -751,6 +928,23 @@ class Translate(Node):
         gui.REGULAR_BOLD = True
     """
 
+    rollback = "never"
+    translation_relevant = True
+
+    identifier: str
+    alternate: str | None
+    language: str | None
+    block: list[Node]
+    after: Node | None
+
+    def __init__(self, loc, identifier, language, block, alternate=None):
+        super(Translate, self).__init__(loc)
+
+        self.identifier = identifier
+        self.alternate = alternate
+        self.language = language
+        self.block = block
+
     def get_code(self, **kwargs) -> str:
         language = util.attr(self, "language")
         identifier = util.attr(self, "identifier")
@@ -770,6 +964,11 @@ class Translate(Node):
             rv.append(util.indent(util.get_code(item, **callkwargs)))
         return "\n".join(rv)
 
+    def get_children(self, f):
+        f(self)
+        for i in self.block:
+            i.get_children(f)
+
 
 class EndTranslate(Node):
     def get_code(self, **kwargs) -> str:
@@ -785,9 +984,12 @@ class TranslateString(Node):
         new ""
     """
 
+    translation_relevant = True
+
     language: str
     old: str
     new: str
+    newloc: tuple[str, int]
 
     def get_code(self, **kwargs) -> str:
         language = util.attr(self, "language")
@@ -801,13 +1003,25 @@ class TranslateString(Node):
 
 
 class TranslatePython(Node):
-    pass
+    translation_relevant = True
+
+    language: str
+    code: PyCode
 
 
 class TranslateBlock(Node):
+    translation_relevant = True
+
+    block: list[Node]
+    language: str
 
     def get_code(self, **kwargs) -> str:
         return util.get_code(self.block, **kwargs)
+
+    def get_children(self, f):
+        f(self)
+        for i in self.block:
+            i.get_children(f)
 
 
 class TranslateSay(Node):
@@ -815,6 +1029,12 @@ class TranslateSay(Node):
     translate say:
         "Hello" "Bonjour"
     """
+
+    translatable = True
+    translation_relevant = True
+
+    alternate: str | None
+    language: str | None
 
     def get_code(self, **kwargs) -> str:
         old, new = util.attr(self, "old"), util.attr(self, "new")
