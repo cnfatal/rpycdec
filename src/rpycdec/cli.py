@@ -4,7 +4,7 @@ import os
 from rpycdec.decompile import decompile
 from rpycdec.rpa import extract_rpa
 from rpycdec.save import extract_save, restore_save
-from rpycdec.translate import translate
+from rpycdec.translate import extract_translate
 
 
 logger = logging.getLogger(__name__)
@@ -27,12 +27,12 @@ def extract_rpa_files(srcs: list[str], **kwargs):
             extract_rpa(f, dir=os.path.dirname(src))
 
 
-def run_translate(srcs: list[str], source_lang: str, target_lang: str, **kwargs):
+def run_extract_translations(srcs: list[str], dest: str, **kwargs):
     """
     extract translations from rpy files.
     """
     for src in srcs:
-        translate(src, source_lang, target_lang, **kwargs)
+        extract_translate(src, dest, **kwargs)
 
 
 def main():
@@ -64,17 +64,21 @@ def main():
         func=lambda args: extract_rpa_files(args.file, **vars(args))
     )
 
-    extract_tl_parser = subparsers.add_parser(
-        "translate",
-        help="""translate files in tl/<language> directory
-        rpycdec translate game/tl/None --src en --dest chinese
-        """,
+    extract_translate_parser = subparsers.add_parser(
+        "extract-translate",
+        help="""extract translations from rpy files and save to tl/<language> directory.""",
     )
-    extract_tl_parser.add_argument("--src", help="source language", default="en")
-    extract_tl_parser.add_argument("--dest", help="target language", default="zh")
-    extract_tl_parser.add_argument("path", nargs=1, help="tl/<language> directory")
-    extract_tl_parser.set_defaults(
-        func=lambda args: run_translate(args.path, args.src, args.dest)
+    extract_translate_parser.add_argument(
+        "src", nargs="+", help="source game directory"
+    )
+    extract_translate_parser.add_argument(
+        "--output",
+        "-o",
+        required=True,
+        help="directory to save translations",
+    )
+    extract_translate_parser.set_defaults(
+        func=lambda args: run_extract_translations(args.src, args.output, **vars(args))
     )
 
     save_parser = subparsers.add_parser("save", help="save operations")
