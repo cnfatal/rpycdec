@@ -4,8 +4,6 @@ import logging
 import os
 import re
 from typing import Callable
-
-import tqdm
 from renpy import script
 from renpy import ast
 import renpy.ast

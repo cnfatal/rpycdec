@@ -245,7 +245,7 @@ class Say(Node):
 
         who = util.attr(self, "who")
         if who:
-            rv.append(who)
+            rv.append(util.get_code(who, **kwargs))
 
         attributes = util.attr(self, "attributes")
         if attributes is not None:
@@ -270,7 +270,7 @@ class Say(Node):
         explicit_identifier = util.attr(self, "explicit_identifier")
         if identifier and explicit_identifier:
             rv.append("id")
-            rv.append(identifier)
+            rv.append(util.get_code(identifier, **kwargs))
 
         arguments = util.attr(self, "arguments")
         if arguments:

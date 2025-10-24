@@ -1,4 +1,5 @@
 import os
+from typing import NamedTuple
 
 import renpy
 
@@ -38,3 +39,12 @@ def unelide_filename(fn: str) -> str:
         return fn2
 
     return fn
+
+
+class GroupedLine(NamedTuple):
+    # The filename the line is from.
+    filename: str
+    number: int
+    indent: int
+    text: str
+    block: list["GroupedLine"]

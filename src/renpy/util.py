@@ -213,8 +213,13 @@ def get_block_code(node, **kwargs) -> str:
     if isinstance(node, list):
         return "\n".join(map(lambda x: get_block_code(x, **kwargs), node))
     lines = []
-    if isinstance(node, tuple) and len(node) >= 4:
-        _, _, code, block = node
+    if isinstance(node, tuple):
+        if len(node) == 5:
+            _, _, _, code, block = node
+        elif len(node) == 4:
+            _, _, code, block = node
+        else:
+            raise NotImplementedError
         lines.append(code)
         lines.append(indent(get_block_code(block, **kwargs)))
     else:
