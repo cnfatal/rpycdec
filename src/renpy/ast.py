@@ -891,12 +891,12 @@ class Define(Node):
         if priority:
             start += f" {priority}"
         store_name = parse_store_name(util.attr(self, "store"))
-        if store_name:
-            start += f" {store_name}"
         varname = util.attr(self, "varname")
         operator = "="
         if getattr(self, "operator", None):
             operator = self.operator
+        if store_name:
+            varname = f"{store_name}.{varname}"
         return f"{start} {varname} {operator} {util.get_code(self.code,**kwargs)}"
 
 
@@ -909,7 +909,10 @@ class Default(Node):
     def get_code(self, **kwargs) -> str:
         # trim store or store. prefix
         st = parse_store_name(util.attr(self, "store"))
-        return f"default {st}.{self.varname} = {util.get_code(self.code,**kwargs)}"
+        varname = util.attr(self, "varname")
+        if st:
+            varname = f"{st}.{varname}"
+        return f"default {varname} = {util.get_code(self.code,**kwargs)}"
 
 
 # https://www.renpy.org/doc/html/screens.html#screen-language
