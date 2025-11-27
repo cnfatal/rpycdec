@@ -103,13 +103,15 @@ class Node(object):
 
     @name.setter
     def name(self, value: str | tuple[Any, ...] | None):
-        match value:
-            case (self.filename, int(version), int(serial)):
-                self._name = None
-                self.name_version = version
-                self.name_serial = serial
-            case _:
-                self._name = value
+        if hasattr(self, "filename"):
+            match value:
+                case (self.filename, int(version), int(serial)):
+                    self._name = None
+                    self.name_version = version
+                    self.name_serial = serial
+                    return
+
+        self._name = value
 
     def __init__(self, loc: tuple[str, int] = ("", 0)):
         """

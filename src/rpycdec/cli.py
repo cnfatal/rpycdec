@@ -77,6 +77,16 @@ def main():
         required=True,
         help="directory to save translations",
     )
+    extract_translate_parser.add_argument(
+        "--src-lang",
+        default="en",
+        help="source language (default: en)",
+    )
+    extract_translate_parser.add_argument(
+        "--dest-lang",
+        required=True,
+        help="destination language",
+    )
     extract_translate_parser.set_defaults(
         func=lambda args: run_extract_translations(args.src, args.output, **vars(args))
     )
