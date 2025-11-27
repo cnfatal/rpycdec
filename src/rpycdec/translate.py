@@ -10,7 +10,7 @@ import renpy.ast
 import renpy.sl2.slast
 import renpy.util
 from rpycdec import utils, stmts
-from renpy.translation import encode_say_string
+
 from renpy.ast import (
     TranslatePython,
     TranslateBlock,
@@ -311,6 +311,8 @@ def parse_and_translate(
         )
     source_list = list(translations.keys())
     logger.info("loaded %d translations", len(source_list))
+    src_lang = kwargs.get("src_lang", "en")
+    dest_lang = kwargs.get("dest_lang", "zh")
     translated = translate_by_model(source_list, src_lang=src_lang, dest_lang=dest_lang)
     translated_map = dict(zip(source_list, translated))
 
@@ -343,6 +345,7 @@ def take_translates(self, nodes: list[renpy.ast.Node]) -> object:
     if not nodes:
         return
 
+    filename = nodes[0].filename
     filename = os.path.normpath(os.path.abspath(filename))
 
     label = None
@@ -372,7 +375,7 @@ def take_translates(self, nodes: list[renpy.ast.Node]) -> object:
         elif isinstance(n, (Translate, TranslateSay)):
             if n.language is None:
                 if n.identifier in default_translates:
-                    old_node = default_translates[n.identifier]
+                    # old_node = default_translates[n.identifier]
                     continue
 
                 default_translates[n.identifier] = n
@@ -393,7 +396,7 @@ def take_translates(self, nodes: list[renpy.ast.Node]) -> object:
     }
 
 
-def extract_translate(game_dir: str, src_lang: str, dest_lang: str, **kwargs) -> None:
+def extract_translate(game_dir: str, output_dir: str, **kwargs) -> None:
     """
     extract translations from game directory.
     """
@@ -413,11 +416,30 @@ def extract_translate(game_dir: str, src_lang: str, dest_lang: str, **kwargs) ->
         logger.info("loading %s", filename)
         loaded_stmts = stmts.load_file(os.path.join(game_dir, filename))
         stmts_dict[filename] = loaded_stmts
-        renpy.util.get_code(
-            loaded_stmts,
-            modifier=lambda node, **kwargs: walk_node(
-                node,
-                lambda meta: do_collect(meta, translations),
-                **kwargs,
-            ),
-        )
+        try:
+            renpy.util.get_code(
+                loaded_stmts,
+                modifier=lambda node, **kwargs: walk_node(
+                    node,
+                    lambda meta: do_collect(meta, translations),
+                    **kwargs,
+                ),
+            )
+        except Exception as e:
+            logger.error(f"Failed to process {filename}: {e}")
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    dest_lang = kwargs.get("dest_lang")
+    if not dest_lang:
+        raise ValueError("dest_lang is required")
+
+    with open(os.path.join(output_dir, "extracted_strings.rpy"), "w", encoding="utf-8") as f:
+        f.write("# Extracted strings\n")
+        f.write(f"translate {dest_lang} strings:\n\n")
+        for old in translations:
+            clean_old = old.replace('"', '\\"')
+            f.write(f'    old "{clean_old}"\n')
+            f.write(f'    new "{clean_old}"\n\n')
+
