@@ -1,4 +1,4 @@
-class PyExpr(object):
+class PyExpr(str):
 
     expr: str
     filename: str
@@ -16,7 +16,7 @@ class PyExpr(object):
         hashcode: str,
         column: int = 0,
     ):
-        self = super().__new__(cls)
+        self = super().__new__(cls, expr)
         self.expr = expr
         self.filename = filename
         self.linenumber = linenumber
