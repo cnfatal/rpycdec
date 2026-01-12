@@ -2,6 +2,7 @@
 
 import logging
 import os
+from pathlib import Path
 
 from renpy import util
 from rpycdec import stmts, utils
@@ -9,21 +10,26 @@ from rpycdec import stmts, utils
 logger = logging.getLogger(__name__)
 
 
-def decompile_file(input_file, output_file=None, **kwargs):
+def decompile_file(input_file, output_path=None, **kwargs):
     """
     decompile rpyc file into rpy file and write to output.
     """
-    if not output_file:
+    if not output_path:
         name, _ = os.path.splitext(input_file)
-        output_file = f"{name}.rpy"
+        output_path = f"{name}.rpy"
+
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
     stmt = stmts.load_file(input_file, **kwargs)
     try:
         code = util.get_code(stmt)
     except Exception as e:
         logger.error("decode file %s failed: %s", input_file, e)
         raise e
-    utils.write_file(output_file, code)
-    logger.info("decompile %s -> %s", input_file, output_file)
+    utils.write_file(output_path, code)
+    logger.info("decompile %s -> %s", input_file, output_path)
 
 
 def decompile(input_path, output_path=None, **kwargs):
@@ -38,6 +44,9 @@ def decompile(input_path, output_path=None, **kwargs):
         output path, by default it's same path of input_path.
     """
     if not os.path.isdir(input_path):
+        if output_path:
+            name, _ = os.path.splitext(os.path.basename(input_path))
+            output_path = os.path.join(output_path, f"{name}.rpy")
         decompile_file(input_path, output_path, **kwargs)
         return
     if not output_path:
