@@ -2,7 +2,6 @@
 
 import logging
 import os
-from pathlib import Path
 
 from renpy import util
 from rpycdec import stmts, utils
