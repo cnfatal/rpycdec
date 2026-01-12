@@ -22,8 +22,8 @@ def decompile_file(input_file, output_path=None, **kwargs):
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
-    stmt = stmts.load_file(input_file, **kwargs)
     try:
+        stmt = stmts.load_file(input_file, **kwargs)
         code = util.get_code(stmt)
     except Exception as e:
         logger.error("decode file %s failed: %s", input_file, e)
