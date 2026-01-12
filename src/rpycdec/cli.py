@@ -15,7 +15,11 @@ def decompile_files(srcs: list[str], **kwargs):
     decompile rpyc file or directory.
     """
     for src in srcs:
-        decompile(src, dis=kwargs.get("disassemble", False))
+        decompile(
+            src,
+            output_path=kwargs.get("output"),
+            dis=kwargs.get("disassemble", False),
+        )
 
 
 def extract_rpa_files(srcs: list[str], **kwargs):
@@ -24,7 +28,8 @@ def extract_rpa_files(srcs: list[str], **kwargs):
     """
     for src in srcs:
         with open(src, "rb") as f:
-            extract_rpa(f, dir=os.path.dirname(src))
+            output_path = kwargs.get("output") or os.path.dirname(src)
+            extract_rpa(f, dir=output_path)
 
 
 def run_extract_translations(srcs: list[str], dest: str, **kwargs):
@@ -52,6 +57,11 @@ def main():
     decompile_parser = subparsers.add_parser("decompile", help="decompile rpyc file")
     decompile_parser.add_argument("src", nargs=1, help="rpyc file or directory")
     decompile_parser.add_argument(
+        "--output",
+        "-o",
+        help="output path",
+    )
+    decompile_parser.add_argument(
         "--disassemble", "-d", action="store_true", help="disassemble rpyc file"
     )
     decompile_parser.set_defaults(
@@ -60,6 +70,11 @@ def main():
 
     unrpa_parser = subparsers.add_parser("unrpa", help="extract rpa archive")
     unrpa_parser.add_argument("file", nargs=1, help="rpa archive")
+    unrpa_parser.add_argument(
+        "--output",
+        "-o",
+        help="output path",
+    )
     unrpa_parser.set_defaults(
         func=lambda args: extract_rpa_files(args.file, **vars(args))
     )
