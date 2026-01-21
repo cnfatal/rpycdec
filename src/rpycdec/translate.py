@@ -2,116 +2,207 @@ import collections
 import hashlib
 import logging
 import os
-import re
-from typing import Callable
-from renpy import script
-from renpy import ast
-import renpy.ast
-import renpy.sl2.slast
-import renpy.util
-from rpycdec import utils, stmts
+from dataclasses import dataclass, field
+from typing import Callable, Iterator, Optional
 
-from renpy.ast import (
-    TranslatePython,
-    TranslateBlock,
-    TranslateEarlyBlock,
-    Translate,
-    TranslateSay,
-)
+import renpy.ast
+from rpycdec import utils, stmts
 
 logger = logging.getLogger(__name__)
 
-PH_CH = "@"  # placeholder char
+
+# ============================================================================
+# Translation Extraction Data Structures
+# ============================================================================
 
 
-# Search for identifiers that have been set to the user, and add them
-# to self.preexisting_identifiers.
-def get_existing_identifiers(self, children: list[renpy.ast.Node]):
-    for i in children:
-        i.get_children
-    for i in script.collapse_stmts(children):
-        if isinstance(i, renpy.ast.Say):
-            identifier = getattr(i, "identifier", None)
-            if identifier is not None:
-                self.preexisting_identifiers.add(identifier)
+@dataclass
+class DialogueTranslation:
+    """Dialogue translation item - generates translate {identifier}: format"""
+
+    identifier: str  # Translation identifier e.g. "start_a1b2c3d4"
+    filename: str  # Source file
+    linenumber: int  # Line number
+    who: Optional[str]  # Speaker
+    what: str  # Dialogue content
+    code: str  # Original code (for comments)
 
 
-def wrap_translate(stmts, label=None, alternate=None, existing_identifiers=set()):
-    translated_nodes = []
-    group = []
-    for i in stmts:
-        if isinstance(i, renpy.ast.Label):
-            if not i.hide:
-                assert isinstance(i.name, str)
-                if i.name.startswith("_"):
-                    alternate = i.name
+@dataclass
+class StringTranslation:
+    """String translation item - generates translate strings: format"""
+
+    filename: str
+    linenumber: int
+    text: str  # Text to translate
+    source: str = "string"  # Source: "menu", "string", "screen", etc.
+
+
+@dataclass
+class TranslationExtractor:
+    """Extract translation content from AST"""
+
+    label: Optional[str] = None
+    identifiers: set[str] = field(default_factory=set)
+    dialogues: list[DialogueTranslation] = field(default_factory=list)
+    strings: list[StringTranslation] = field(default_factory=list)
+    _seen_strings: set[str] = field(default_factory=set)
+
+    def extract_file(self, filename: str, nodes: list[renpy.ast.Node]) -> None:
+        """Extract translations from a single file"""
+        for node in self._walk_nodes(nodes):
+            self._process_node(node, filename)
+
+    def _walk_nodes(self, nodes: list[renpy.ast.Node]) -> Iterator[renpy.ast.Node]:
+        """Recursively walk all nodes"""
+        if not nodes:
+            return
+
+        for node in nodes:
+            yield node
+
+            # Handle different node types - each node type should only be processed once
+            if isinstance(node, renpy.ast.If):
+                # If node has entries with blocks
+                for _, block in node.entries:
+                    if block:
+                        yield from self._walk_nodes(block)
+
+            elif isinstance(node, renpy.ast.Menu):
+                # Menu node has items with blocks
+                for _, _, block in node.items:
+                    if block:
+                        yield from self._walk_nodes(block)
+
+            elif isinstance(node, renpy.ast.UserStatement):
+                # UserStatement may have code_block and subparses
+                if hasattr(node, "code_block") and node.code_block:
+                    yield from self._walk_nodes(node.code_block)
+                if hasattr(node, "subparses") and node.subparses:
+                    for subparse in node.subparses:
+                        if hasattr(subparse, "block") and subparse.block:
+                            yield from self._walk_nodes(subparse.block)
+
+            elif hasattr(node, "block") and node.block:
+                # Generic block handling for Label, While, Init, Translate, etc.
+                yield from self._walk_nodes(node.block)
+
+    def _process_node(self, node: renpy.ast.Node, filename: str) -> None:
+        """Process a single node"""
+        # Track label
+        if isinstance(node, renpy.ast.Label):
+            if not getattr(node, "hide", False):
+                name = node.get_name() if hasattr(node, "get_name") else getattr(node, "name", None)
+                if name and isinstance(name, str) and not name.startswith("_"):
+                    self.label = name
+
+        # Say node -> dialogue translation
+        if isinstance(node, renpy.ast.Say):
+            self._extract_say(node, filename)
+
+        # TranslateSay node - already translated, skip
+        elif isinstance(node, renpy.ast.TranslateSay):
+            pass  # Already a translation node, no need to extract
+
+        # Menu node -> string translation
+        elif isinstance(node, renpy.ast.Menu):
+            self._extract_menu(node, filename)
+
+        # UserStatement node -> string translation
+        elif isinstance(node, renpy.ast.UserStatement):
+            self._extract_user_statement(node, filename)
+
+    def _extract_say(self, node: renpy.ast.Say, filename: str) -> None:
+        """Extract Say node"""
+        what = getattr(node, "what", None)
+        if not what:
+            return
+
+        identifier = self._generate_identifier(node)
+        who = getattr(node, "who", None)
+
+        self.dialogues.append(
+            DialogueTranslation(
+                identifier=identifier,
+                filename=filename,
+                linenumber=node.linenumber,
+                who=who,
+                what=what,
+                code=node.get_code(),
+            )
+        )
+
+    def _extract_menu(self, node: renpy.ast.Menu, filename: str) -> None:
+        """Extract Menu node options"""
+        items = getattr(node, "items", [])
+        for caption, condition, block in items:
+            if caption and caption not in self._seen_strings:
+                self._seen_strings.add(caption)
+                # Calculate correct line number
+                if block:
+                    line = block[0].linenumber - 1
                 else:
-                    label = i.name
-                    alternate = None
-        if not isinstance(i, renpy.ast.Translate):
-            wrap_translate(i.block, label, alternate, existing_identifiers)
-        if isinstance(i, renpy.ast.Say):
-            group.append(i)
-            tl = create_translate(group)
-            translated_nodes.extend(tl)
-            group = []
-        elif i.translatable:
-            group.append(i)
-        else:
-            if group:
-                tl = create_translate(group)
-                translated_nodes.extend(tl)
-                group = []
-            translated_nodes.append(i)
-    if group:
-        nodes = create_translate(group)
-        translated_nodes.extend(nodes)
-        group = []
-    nodes[:] = translated_nodes
+                    line = node.linenumber
 
+                self.strings.append(
+                    StringTranslation(
+                        filename=filename,
+                        linenumber=line,
+                        text=caption,
+                        source="menu",
+                    )
+                )
 
-def create_translate(
-    nodes: list[renpy.ast.Node],
-    label: str | None,
-    alternate: str | None,
-    existing_identifiers: set = set(),
-) -> list[renpy.ast.Node]:
-    md5 = hashlib.md5()
-    for i in nodes:
-        code = i.get_code()
+    def _extract_user_statement(self, node: renpy.ast.UserStatement, filename: str) -> None:
+        """Extract strings from UserStatement node"""
+        try:
+            translation_strings = node.get_translation_strings()
+            for item in translation_strings:
+                if isinstance(item, tuple):
+                    line, text = item
+                else:
+                    line, text = node.linenumber, item
+
+                if text and text not in self._seen_strings:
+                    self._seen_strings.add(text)
+                    self.strings.append(
+                        StringTranslation(
+                            filename=filename,
+                            linenumber=line,
+                            text=text,
+                            source="user_statement",
+                        )
+                    )
+        except Exception:
+            pass  # Some UserStatements may not implement get_translation_strings
+
+    def _generate_identifier(self, node: renpy.ast.Node) -> str:
+        """Generate translation identifier (Ren'Py compatible)"""
+        # Check for explicit identifier
+        explicit_id = getattr(node, "identifier", None)
+        if explicit_id and getattr(node, "explicit_identifier", False):
+            if explicit_id not in self.identifiers:
+                self.identifiers.add(explicit_id)
+                return explicit_id
+
+        # Calculate MD5
+        code = node.get_code()
+        md5 = hashlib.md5()
         md5.update((code + "\r\n").encode("utf-8"))
-    digest = md5.hexdigest()[:8]
-    identifier = unique_identifier(label, digest, existing_identifiers)
+        digest = md5.hexdigest()[:8]
 
-    # Take id clause from the block if the last statement is Say statement
-    id_identifier = None
-    for i in nodes:
-        if isinstance(i, ast.Say):
-            id_identifier = getattr(i, "identifier", id_identifier)
-
-    if alternate is not None:
-        alternate = unique_identifier(alternate, digest, existing_identifiers)
-        identifier = id_identifier or identifier
-    elif id_identifier is not None:
-        alternate = identifier
-        identifier = id_identifier
-    else:
-        alternate = None
-    existing_identifiers.add(identifier)
-    if alternate is not None:
-        existing_identifiers.add(alternate)
-
-    loc = (nodes[0].filename, nodes[0].linenumber)
-
-    tl = ast.Translate(loc, identifier, None, nodes, alternate=alternate)
-    tl.name = nodes[0].name + ("translate",)
-
-    ed = renpy.ast.EndTranslate(loc)
-    ed.name = nodes[0].name + ("end_translate",)
-    return [tl, ed]
+        identifier = unique_identifier(self.label, digest, self.identifiers)
+        self.identifiers.add(identifier)
+        return identifier
 
 
-def unique_identifier(label: str | None, digest, existing_identifiers: set = set()):
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+
+def unique_identifier(label: str | None, digest: str, existing_identifiers: set = set()) -> str:
+    """Generate a unique translation identifier"""
     if label is None:
         base = digest
     else:
@@ -127,319 +218,245 @@ def unique_identifier(label: str | None, digest, existing_identifiers: set = set
     return identifier
 
 
-def encode_placeholder(line: str) -> tuple[str, list[str]]:
-    phs = []
-    totranslate = ""
-    # {}  []
-    braces, squares = [], []
-    for i, char in enumerate(line):
-        if i > 0 and line[i - 1] == "\\":
-            totranslate += char
-            continue
-        match char:
-            case "[":
-                squares.append(i)
-            case "]" if squares:
-                end = squares.pop()
-                if squares:
-                    continue
-                phs.append(line[end : i + 1])
-                totranslate += PH_CH
-            case "{":
-                braces.append(i)
-            case "}" if braces:
-                end = braces.pop()
-                if braces:
-                    continue
-                phs.append(line[end : i + 1])
-                totranslate += PH_CH
-            case _:
-                if not squares and not braces:
-                    totranslate += char
-    return totranslate, phs
+# ============================================================================
+# Translation File Generation
+# ============================================================================
 
 
-def decode_placeholder(line: str, phs: list[str]) -> str:
-    for placeholder in phs:
-        line = line.replace(PH_CH, placeholder, 1)
-    return line
+def quote_unicode(s: str) -> str:
+    """Escape special characters in string"""
+    s = s.replace("\\", "\\\\")
+    s = s.replace('"', '\\"')
+    s = s.replace("\a", "\\a")
+    s = s.replace("\b", "\\b")
+    s = s.replace("\f", "\\f")
+    s = s.replace("\n", "\\n")
+    s = s.replace("\r", "\\r")
+    s = s.replace("\t", "\\t")
+    s = s.replace("\v", "\\v")
+    return s
 
 
-def translate_placeholder(line, fn: Callable[[str], str]) -> str:
-    """
-    1. repalace placeholders with @
-    2. translate
-    3. replace back @ with placeholders
-
-    To avoid translate chars in placeholders
-
-    eg:
-
-    bad:  {color=#ff0000}hello{/color}  -> {颜色=#ff0000}你好{/颜色}
-    good: {color=#ff0000}hello{/color}  -> @你好@ -> {color=#ff0000}你好{/color}
-    """
-    totranslate, phs = encode_placeholder(line)
-    translated = fn(totranslate) if totranslate else line
-    for placeholder in phs:
-        # translate in placeholder
-        # e.g. "{#r=hello}"
-        matched = re.search(r"{#\w=(.+?)}", placeholder)
-        if matched:
-            translated = translate_placeholder(matched.group(1), fn)
-            placeholder = (
-                placeholder[: matched.start(1)]
-                + translated
-                + placeholder[matched.end(1) :]
-            )
-        translated = translated.replace(PH_CH, placeholder, 1)
-    return translated
+def elide_filename(filename: str, game_dir: str = "") -> str:
+    """Simplify filename for comments"""
+    if game_dir and filename.startswith(game_dir):
+        filename = filename[len(game_dir) :].lstrip(os.sep)
+    # Convert .rpyc to .rpy for display
+    if filename.endswith(".rpyc"):
+        filename = filename[:-1]
+    elif filename.endswith(".rpymc"):
+        filename = filename[:-1]
+    return filename
 
 
-def walk_node(
-    node, callback: Callable[[str, str, str], str], target_lang: str = "None", **kwargs
-):
-    """
-    callback: (kind, old, new) -> translated
-
-    walk ast node and call callback on nodes that contains text/expr/block
-    """
-    if isinstance(node, renpy.ast.Translate):
-        if target_lang:
-            node.language = target_lang
-    elif isinstance(node, renpy.ast.TranslateString):
-        node.new = callback(("text", node.old, node.new))
-        if target_lang:
-            node.language = target_lang
-    elif isinstance(node, renpy.ast.TranslateBlock):
+def get_translation_filename(source_filename: str) -> str:
+    """Generate translation filename from source filename"""
+    basename = os.path.basename(source_filename)
+    # Remove .rpyc/.rpymc suffix
+    if basename.endswith(".rpyc"):
+        basename = basename[:-1]
+    elif basename.endswith(".rpymc"):
+        basename = basename[:-1]
+    elif basename.endswith(".rpy"):
         pass
-    elif isinstance(node, renpy.ast.Say):
-        node.what = callback(("text", node.what, ""))
-    elif isinstance(node, renpy.sl2.slast.SLDisplayable):
-        if node.get_name() in ["text", "textbutton"]:
-            for i, val in enumerate(node.positional):
-                node.positional[i] = callback(("expr", val, ""))
-    elif isinstance(node, renpy.ast.Show):
-        pass
-    elif isinstance(node, renpy.ast.UserStatement):
-        pass
-    elif isinstance(node, renpy.ast.PyCode):
-        state = list(node.state)
-        state[1] = callback(("block", state[1], ""))
-        node.state = tuple(state)
-    elif isinstance(node, renpy.sl2.slast.SLBlock):
-        pass
-    elif isinstance(node, renpy.sl2.slast.SLUse):
-        if node.args:
-            for i, (name, val) in enumerate(node.args.arguments):
-                val = callback(("block", val, ""))
-                node.args.arguments[i] = (name, val)
-    elif isinstance(node, renpy.ast.Menu):
-        for i, item in enumerate(node.items):
-            _li = list(item)
-            _li[0] = callback(("text", _li[0], ""))
-            node.items[i] = tuple(_li)
+    elif basename.endswith(".rpym"):
+        basename = basename[:-1] + ".rpy"
+    return basename
 
 
-def translate_by_model(srcs: list[str], src_lang="en", dest_lang="zh") -> list[str]:
-    from transformers import pipeline
-    from transformers.pipelines import TranslationPipeline
-    from tqdm import tqdm
-
-    # Select appropriate translation model based on target language
-    if dest_lang.lower() in ["zh", "chinese"]:
-        model = "Helsinki-NLP/opus-mt-en-zh"
-    elif dest_lang.lower() in ["ja", "japanese"]:
-        model = "Helsinki-NLP/opus-mt-en-ja"
-    else:
-        model = "Helsinki-NLP/opus-mt-en-zh"
-    logger.info("using translation model: %s", model)
-
-    pipe: TranslationPipeline = pipeline("translation", model=model)
-
-    # replace placeholder
-    totranslate = []
-    phslist = []
-    for src in srcs:
-        encoded, placeholders = encode_placeholder(src)
-        totranslate.append(encoded)
-        phslist.append(placeholders)
-
-    translated = []
-    batch_size = 8
-    for i in tqdm(range(0, len(totranslate), batch_size), desc="Translating"):
-        batch_result = pipe(
-            totranslate[i : i + batch_size],
-            src_lang=src_lang,
-            tgt_lang=dest_lang,
-            batch_size=batch_size,
-        )
-        translated.extend([item["translation_text"] for item in batch_result])
-
-    # restore placeholders
-    for i, placeholders in enumerate(phslist):
-        translated[i] = decode_placeholder(translated[i], placeholders)
-    return translated
-
-
-def parse_and_translate(
-    game_dir: str, files: list[str], output_dir: str, **kwargs
-) -> None:
+def write_dialogue_translations(
+    dialogues: list[DialogueTranslation],
+    output_dir: str,
+    language: str,
+    game_dir: str = "",
+    empty_translation: bool = True,
+    filter_func: Optional[Callable[[str], str]] = None,
+) -> dict[str, int]:
     """
-    Translate files
+    Generate dialogue translation files.
+
+    Returns:
+        dict: {filename: count} number of translations written per file
     """
+    # Group by source file
+    by_file: dict[str, list[DialogueTranslation]] = collections.defaultdict(list)
+    for d in dialogues:
+        tl_filename = get_translation_filename(d.filename)
+        by_file[tl_filename].append(d)
 
-    def _do_collect(meta: tuple, into: dict[str, str]) -> str:
-        kind, old, new = meta
-        if kind == "text" and old:
-            into[old] = new
-        return old
+    result = {}
 
-    # load translations
-    stmts_dict: dict[str, list[renpy.ast.Node]] = {}
-    translations = {}
-    for filename in files:
-        logger.info("loading %s", filename)
-        loaded_stmts = stmts.load_file(os.path.join(game_dir, filename))
-        stmts_dict[filename] = loaded_stmts
-        renpy.util.get_code(
-            loaded_stmts,
-            modifier=lambda node, **kwargs: walk_node(
-                node,
-                lambda meta: _do_collect(meta, translations),
-                **kwargs,
-            ),
-        )
-    source_list = list(translations.keys())
-    logger.info("loaded %d translations", len(source_list))
-    src_lang = kwargs.get("src_lang", "en")
-    dest_lang = kwargs.get("dest_lang", "zh")
-    translated = translate_by_model(source_list, src_lang=src_lang, dest_lang=dest_lang)
-    translated_map = dict(zip(source_list, translated))
+    for tl_filename, items in by_file.items():
+        tl_path = os.path.join(output_dir, tl_filename)
+        os.makedirs(os.path.dirname(tl_path) if os.path.dirname(tl_path) else output_dir, exist_ok=True)
 
-    def _do_translate(meta: tuple, translations: dict[str, str]) -> str:
-        kind, old, new = meta
-        if kind == "text" and old in translations:
-            return translations[old]
-        return old
+        with open(tl_path, "w", encoding="utf-8") as f:
+            f.write(f"# TODO: Translation updated at {__import__('datetime').datetime.now().isoformat()}\n\n")
 
-    for filename, loaded_stmts in stmts_dict.items():
-        code = renpy.util.get_code(
-            loaded_stmts,
-            modifier=lambda node, **kwargs: walk_node(
-                node,
-                lambda meta: _do_translate(meta, translated_map),
-                **kwargs,
-            ),
-        )
-        dest = os.path.join(output_dir, filename.removesuffix("c"))
-        logger.info("writing %s", dest)
-        utils.write_file(dest, code)
+            for item in items:
+                # Write source file location comment
+                elided = elide_filename(item.filename, game_dir)
+                f.write(f"# {elided}:{item.linenumber}\n")
+
+                # Write translate block
+                f.write(f"translate {language} {item.identifier}:\n\n")
+
+                # Write original code as comment
+                f.write(f"    # {item.code}\n")
+
+                # Write translation content
+                if empty_translation:
+                    new_what = ""
+                elif filter_func:
+                    new_what = filter_func(item.what)
+                else:
+                    new_what = item.what
+
+                # Generate translated code
+                if item.who:
+                    f.write(f'    {item.who} "{quote_unicode(new_what)}"\n')
+                else:
+                    f.write(f'    "{quote_unicode(new_what)}"\n')
+
+                f.write("\n")
+
+        result[tl_filename] = len(items)
+        logger.info(f"Wrote {len(items)} dialogue translations to {tl_path}")
+
+    return result
 
 
-def take_translates(self, nodes: list[renpy.ast.Node]) -> object:
+def write_string_translations(
+    strings: list[StringTranslation],
+    output_dir: str,
+    language: str,
+    game_dir: str = "",
+    empty_translation: bool = True,
+    filter_func: Optional[Callable[[str], str]] = None,
+) -> int:
     """
-    Takes the translates out of the flattened list of statements, and stores
-    them into the dicts above.
+    Generate string translation file.
+
+    Returns:
+        int: number of translations written
     """
+    if not strings:
+        return 0
 
-    if not nodes:
-        return
+    tl_path = os.path.join(output_dir, "strings.rpy")
 
-    filename = nodes[0].filename
-    filename = os.path.normpath(os.path.abspath(filename))
+    with open(tl_path, "w", encoding="utf-8") as f:
+        f.write(f"# TODO: Translation updated at {__import__('datetime').datetime.now().isoformat()}\n\n")
+        f.write(f"translate {language} strings:\n\n")
 
-    label = None
-    languages = set()
-    default_translates = {}
-    file_translates = collections.defaultdict(list)
-    additional_strings = collections.defaultdict(list)
-    for n in nodes:
-        if not n.translation_relevant:
-            continue
+        for item in strings:
+            # Write source file location comment
+            elided = elide_filename(item.filename, game_dir)
+            f.write(f"    # {elided}:{item.linenumber}\n")
 
-        if isinstance(n.name, str):
-            label = n.name
-
-        if isinstance(n, TranslatePython):
-            if n.language is not None:
-                languages.add(n.language)
-
-        elif isinstance(n, TranslateEarlyBlock):
-            if n.language is not None:
-                languages.add(n.language)
-
-        elif isinstance(n, TranslateBlock):
-            if n.language is not None:
-                languages.add(n.language)
-
-        elif isinstance(n, (Translate, TranslateSay)):
-            if n.language is None:
-                if n.identifier in default_translates:
-                    # old_node = default_translates[n.identifier]
-                    continue
-
-                default_translates[n.identifier] = n
-                file_translates[filename].append((label, n))
+            # Write old/new
+            old_text = quote_unicode(item.text)
+            if empty_translation:
+                new_text = ""
+            elif filter_func:
+                new_text = quote_unicode(filter_func(item.text))
             else:
-                languages.add(n.language)
-                self.language_translates[n.identifier, n.language] = n
-                self.chain_worklist.append((n.identifier, n.language))
+                new_text = old_text
 
-        else:
-            for line in n.get_translation_strings():
-                additional_strings[filename].append(line)
-    return {
-        "languages": languages,
-        "default_translates": default_translates,
-        "file_translates": file_translates,
-        "additional_strings": additional_strings,
-    }
+            f.write(f'    old "{old_text}"\n')
+            f.write(f'    new "{new_text}"\n\n')
+
+    logger.info(f"Wrote {len(strings)} string translations to {tl_path}")
+    return len(strings)
 
 
-def extract_translate(game_dir: str, output_dir: str, **kwargs) -> None:
+def extract_translations(
+    game_dir: str,
+    output_dir: str,
+    language: str,
+    *,
+    include_dialogues: bool = True,
+    include_strings: bool = True,
+    empty_translation: bool = True,
+    filter_func: Optional[Callable[[str], str]] = None,
+) -> dict:
     """
-    extract translations from game directory.
+    Extract translation templates from .rpyc files.
+
+    Args:
+        game_dir: Game directory (containing .rpyc files)
+        output_dir: Output directory (will create tl/{language}/ structure)
+        language: Target language code e.g. "chinese", "japanese"
+        include_dialogues: Whether to extract dialogue translations
+        include_strings: Whether to extract string translations
+        empty_translation: True=new is empty, False=new copies old
+        filter_func: Optional text filter/transform function
+
+    Returns:
+        dict: Extraction statistics
     """
+    # Create output directory tl/{language}/
+    tl_output_dir = os.path.join(output_dir, "tl", language)
+    os.makedirs(tl_output_dir, exist_ok=True)
+
+    # Find all .rpyc/.rpymc files
     matches = utils.match_files(game_dir, r".*\.rpym?c$")
+    logger.info(f"Found {len(matches)} rpyc files in {game_dir}")
 
-    # load translations
-    stmts_dict: dict[str, list[renpy.ast.Node]] = {}
-    translations = {}
+    # Create extractor
+    extractor = TranslationExtractor()
 
-    def do_collect(meta: tuple, into: dict[str, str]) -> str:
-        kind, old, new = meta
-        if kind == "text" and old:
-            into[old] = new
-        return old
-
+    # Process all files
     for filename in matches:
-        logger.info("loading %s", filename)
-        loaded_stmts = stmts.load_file(os.path.join(game_dir, filename))
-        stmts_dict[filename] = loaded_stmts
+        filepath = os.path.join(game_dir, filename)
+        logger.info(f"Processing {filename}")
+
         try:
-            renpy.util.get_code(
-                loaded_stmts,
-                modifier=lambda node, **kwargs: walk_node(
-                    node,
-                    lambda meta: do_collect(meta, translations),
-                    **kwargs,
-                ),
-            )
+            loaded_stmts = stmts.load_file(filepath)
+            if loaded_stmts:
+                extractor.extract_file(filename, loaded_stmts)
         except Exception as e:
             logger.error(f"Failed to process {filename}: {e}")
+            continue
 
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    # Statistics
+    stats = {
+        "files_processed": len(matches),
+        "dialogues_found": len(extractor.dialogues),
+        "strings_found": len(extractor.strings),
+        "dialogues_written": 0,
+        "strings_written": 0,
+    }
 
-    dest_lang = kwargs.get("dest_lang")
-    if not dest_lang:
-        raise ValueError("dest_lang is required")
+    # Generate translation files
+    if include_dialogues and extractor.dialogues:
+        dialogue_stats = write_dialogue_translations(
+            extractor.dialogues,
+            tl_output_dir,
+            language,
+            game_dir=game_dir,
+            empty_translation=empty_translation,
+            filter_func=filter_func,
+        )
+        stats["dialogues_written"] = sum(dialogue_stats.values())
+        stats["dialogue_files"] = dialogue_stats
 
-    with open(os.path.join(output_dir, "extracted_strings.rpy"), "w", encoding="utf-8") as f:
-        f.write("# Extracted strings\n")
-        f.write(f"translate {dest_lang} strings:\n\n")
-        for old in translations:
-            clean_old = old.replace('"', '\\"')
-            f.write(f'    old "{clean_old}"\n')
-            f.write(f'    new "{clean_old}"\n\n')
+    if include_strings and extractor.strings:
+        stats["strings_written"] = write_string_translations(
+            extractor.strings,
+            tl_output_dir,
+            language,
+            game_dir=game_dir,
+            empty_translation=empty_translation,
+            filter_func=filter_func,
+        )
+
+    logger.info(
+        f"Extraction complete: {stats['dialogues_written']} dialogues, "
+        f"{stats['strings_written']} strings written to {tl_output_dir}"
+    )
+
+    return stats
+
+
 

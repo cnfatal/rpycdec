@@ -50,7 +50,7 @@ rpycdec unrpa archive.rpa
 Extract translations:
 
 ```sh
-rpycdec extract_translations /path/to/game/ --language chinese
+rpycdec extract-translate /path/to/game/ -l Chinese
 ```
 
 ### Library Usage

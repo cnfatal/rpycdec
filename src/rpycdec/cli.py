@@ -3,8 +3,8 @@ import logging
 import os
 from rpycdec.decompile import decompile
 from rpycdec.rpa import extract_rpa
-from rpycdec.save import extract_save, restore_save
-from rpycdec.translate import extract_translate
+from rpycdec.save import extract_save, restore_save, dump_save_info, generate_new_key
+from rpycdec.translate import extract_translations
 
 
 logger = logging.getLogger(__name__)
@@ -32,12 +32,21 @@ def extract_rpa_files(srcs: list[str], **kwargs):
             extract_rpa(f, dir=output_path)
 
 
-def run_extract_translations(srcs: list[str], dest: str, **kwargs):
+def run_extract_translations(srcs: list[str], language: str, output: str | None = None, **kwargs):
     """
     extract translations from rpy files.
     """
     for src in srcs:
-        extract_translate(src, dest, **kwargs)
+        # Default output to current directory, extract_translations will create tl/{language}/
+        dest = output or "."
+        extract_translations(
+            game_dir=src,
+            output_dir=dest,
+            language=language,
+            include_dialogues=kwargs.get("include_dialogues", True),
+            include_strings=kwargs.get("include_strings", True),
+            empty_translation=kwargs.get("empty_translation", False),
+        )
 
 
 def main():
@@ -89,21 +98,38 @@ def main():
     extract_translate_parser.add_argument(
         "--output",
         "-o",
-        required=True,
-        help="directory to save translations",
+        help="output directory (default: current directory, creates tl/<language>/)",
     )
     extract_translate_parser.add_argument(
-        "--src-lang",
-        default="en",
-        help="source language (default: en)",
+        "--language",
+        "-l",
+        required=True,
+        help="target language code (e.g. chinese, japanese)",
     )
     extract_translate_parser.add_argument(
-        "--dest-lang",
-        required=True,
-        help="destination language",
+        "--no-dialogues",
+        action="store_true",
+        help="skip dialogue translations",
+    )
+    extract_translate_parser.add_argument(
+        "--no-strings",
+        action="store_true",
+        help="skip string translations",
+    )
+    extract_translate_parser.add_argument(
+        "--empty",
+        action="store_true",
+        help="generate empty translations (default: copy original)",
     )
     extract_translate_parser.set_defaults(
-        func=lambda args: run_extract_translations(args.src, args.output, **vars(args))
+        func=lambda args: run_extract_translations(
+            args.src,
+            args.language,
+            output=args.output,
+            include_dialogues=not args.no_dialogues,
+            include_strings=not args.no_strings,
+            empty_translation=args.empty,
+        )
     )
 
     save_parser = subparsers.add_parser("save", help="save operations")
@@ -111,21 +137,56 @@ def main():
         title="save subcommands", dest="save_command", help="save subcommand help"
     )
     save_extract_parser = save_subparsers.add_parser(
-        "extract", help="extract save data"
+        "extract", help="extract save data to JSON files for editing"
     )
     save_extract_parser.add_argument("path", nargs=1, help="save-file path")
     save_extract_parser.add_argument("dest", nargs="?", help="extract to directory")
+    save_extract_parser.add_argument(
+        "--disassemble", "-d", action="store_true", help="print pickle disassembly"
+    )
+    save_extract_parser.add_argument(
+        "--verbose", "-V", action="store_true", help="verbose class loading output"
+    )
     save_extract_parser.set_defaults(
-        func=lambda args: extract_save(args.path[0], args.dest, **vars(args))
+        func=lambda args: extract_save(
+            args.path[0],
+            args.dest or "",
+            dissemble=args.disassemble,
+            verbose=getattr(args, "verbose", False),
+        )
     )
 
     save_restore_parser = save_subparsers.add_parser(
-        "restore", help="restore save data from extracted directory"
+        "restore", help="restore save data from extracted JSON directory"
     )
     save_restore_parser.add_argument("path", nargs=1, help="extracted directory")
-    save_restore_parser.add_argument("dest", nargs=1, help="restore to save-file")
+    save_restore_parser.add_argument("dest", nargs="?", help="restore to save-file")
+    save_restore_parser.add_argument(
+        "--key", "-k", help="path to security_keys.txt for re-signing"
+    )
     save_restore_parser.set_defaults(
-        func=lambda args: restore_save(args.path[0], args.dest[0])
+        func=lambda args: restore_save(
+            args.path[0], args.dest or "", key_file=args.key or ""
+        )
+    )
+
+    save_info_parser = save_subparsers.add_parser(
+        "info", help="show save file information"
+    )
+    save_info_parser.add_argument("path", nargs=1, help="save-file path")
+    save_info_parser.set_defaults(
+        func=lambda args: dump_save_info(args.path[0])
+    )
+
+    save_genkey_parser = save_subparsers.add_parser(
+        "genkey", help="generate a new signing key (requires ecdsa library)"
+    )
+    save_genkey_parser.add_argument(
+        "output", nargs="?", default="security_keys.txt",
+        help="output key file path (default: security_keys.txt)"
+    )
+    save_genkey_parser.set_defaults(
+        func=lambda args: generate_new_key(args.output)
     )
 
     args = argparser.parse_args()
