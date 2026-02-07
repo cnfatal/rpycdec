@@ -15,11 +15,10 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dynamic = ["version"]
-dependencies = ["requests", "ratelimit", "tqdm"]
+dependencies = []
 
 [project.optional-dependencies]
 release = ["twine"]
-transformers = ["transformers", "torch", "sentencepiece"]
 
 [project.urls]
 "Homepage" = "https://github.com/cnfatal/rpycdec"
