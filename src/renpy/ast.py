@@ -206,17 +206,21 @@ class PyExpr(str):
         "filename",
         "linenumber",
         "py",
+        "hashcode",
+        "column",
     ]
 
-    def __new__(cls, s, filename, linenumber, py=3):
+    def __new__(cls, s, filename=None, linenumber=0, py=3, hashcode=None, column=0):
         self = str.__new__(cls, s)
         self.filename = filename  # type: ignore
         self.linenumber = linenumber  # type: ignore
         self.py = py  # type: ignore
+        self.hashcode = hashcode  # type: ignore
+        self.column = column  # type: ignore
         return self
 
     def __getnewargs__(self):
-        return (str(self), self.filename, self.linenumber, self.py)
+        return (str(self), self.filename, self.linenumber, self.py, self.hashcode, self.column)
 
     def get_code(self, **kwargs) -> str:
         return str(self)

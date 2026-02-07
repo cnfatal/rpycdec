@@ -10,10 +10,10 @@ class PyExpr(str):
     def __new__(
         cls,
         expr: str,
-        filename: str,
-        linenumber: int,
-        py: int,
-        hashcode: str,
+        filename: str = '',
+        linenumber: int = 0,
+        py: int = 3,
+        hashcode: str = '',
         column: int = 0,
     ):
         self = super().__new__(cls, expr)

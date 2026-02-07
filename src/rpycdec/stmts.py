@@ -49,7 +49,7 @@ class DummyClass(object):
 
 class GenericUnpickler(pickle.Unpickler):
     def find_class(self, module, name):
-        if module.startswith("store") or module.startswith("renpy"):
+        if module.startswith("store"):
             return type(name, (DummyClass,), {"__module__": module})
         return super().find_class(module, name)
 
@@ -95,10 +95,12 @@ def load(data: io.BufferedReader, slots: list[int] = [1, 2], **kwargs) -> Node |
                 logger.info("Disassembling rpyc file...")
                 pickletools.dis(bindata)
 
-            data, stmts = pickle.loads(
-                bindata, encoding="utf-8", errors="surrogateescape"
+            unpickler = GenericUnpickler(
+                io.BytesIO(bindata), encoding="utf-8", errors="surrogateescape"
             )
-            key = data.get("key", "unlocked")
+            data, stmts = unpickler.load()
+
+            key = data.get("key", "unlocked")  # type: ignore
             return stmts
     raise Exception("Unsupported file format or invalid file")
 
