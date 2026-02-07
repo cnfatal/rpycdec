@@ -6,6 +6,7 @@ A tool for decompiling Ren'py compiled script files (.rpyc and .rpymc).
 
 - Decompile .rpyc and .rpymc files to readable Python code
 - Extract RPA archives
+- Extract Ren'Py games from Android APK files
 - Parse translations from .rpyc and .rpymc files to `tl/{language}/` directories
 - Support for multiple Ren'py versions (7.x, 8.x)
 
@@ -45,6 +46,12 @@ Extract RPA archive:
 
 ```sh
 rpycdec unrpa archive.rpa
+```
+
+Extract Ren'Py game from Android APK:
+
+```sh
+rpycdec extract-game game.apk
 ```
 
 Extract translations:

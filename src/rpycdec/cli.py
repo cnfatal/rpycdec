@@ -5,6 +5,7 @@ from rpycdec.decompile import decompile
 from rpycdec.rpa import extract_rpa
 from rpycdec.save import extract_save, restore_save, dump_save_info, generate_new_key
 from rpycdec.translate import extract_translations
+from rpycdec.apk import extract_apk
 
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,9 @@ def extract_rpa_files(srcs: list[str], **kwargs):
             extract_rpa(f, dir=output_path)
 
 
-def run_extract_translations(srcs: list[str], language: str, output: str | None = None, **kwargs):
+def run_extract_translations(
+    srcs: list[str], language: str, output: str | None = None, **kwargs
+):
     """
     extract translations from rpy files.
     """
@@ -47,6 +50,16 @@ def run_extract_translations(srcs: list[str], language: str, output: str | None 
             include_strings=kwargs.get("include_strings", True),
             empty_translation=kwargs.get("empty_translation", False),
         )
+
+
+def extract_game_from_apk(apk_path: str, **kwargs):
+    """
+    Extract Ren'Py game from Android APK file.
+    """
+    extract_apk(
+        apk_path=apk_path,
+        output_dir=kwargs.get("output"),
+    )
 
 
 def main():
@@ -86,6 +99,19 @@ def main():
     )
     unrpa_parser.set_defaults(
         func=lambda args: extract_rpa_files(args.file, **vars(args))
+    )
+
+    extract_game_parser = subparsers.add_parser(
+        "extract-game", help="extract Ren'Py game from Android APK file"
+    )
+    extract_game_parser.add_argument("apk", help="Android APK file path")
+    extract_game_parser.add_argument(
+        "--output",
+        "-o",
+        help="output directory (default: APK filename without extension)",
+    )
+    extract_game_parser.set_defaults(
+        func=lambda args: extract_game_from_apk(args.apk, **vars(args))
     )
 
     extract_translate_parser = subparsers.add_parser(
@@ -174,20 +200,18 @@ def main():
         "info", help="show save file information"
     )
     save_info_parser.add_argument("path", nargs=1, help="save-file path")
-    save_info_parser.set_defaults(
-        func=lambda args: dump_save_info(args.path[0])
-    )
+    save_info_parser.set_defaults(func=lambda args: dump_save_info(args.path[0]))
 
     save_genkey_parser = save_subparsers.add_parser(
         "genkey", help="generate a new signing key (requires ecdsa library)"
     )
     save_genkey_parser.add_argument(
-        "output", nargs="?", default="security_keys.txt",
-        help="output key file path (default: security_keys.txt)"
+        "output",
+        nargs="?",
+        default="security_keys.txt",
+        help="output key file path (default: security_keys.txt)",
     )
-    save_genkey_parser.set_defaults(
-        func=lambda args: generate_new_key(args.output)
-    )
+    save_genkey_parser.set_defaults(func=lambda args: generate_new_key(args.output))
 
     args = argparser.parse_args()
     if args.verbose:
