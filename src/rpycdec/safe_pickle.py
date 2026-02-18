@@ -219,7 +219,10 @@ class RestrictedUnpickler(pickle.Unpickler):
 
 
 def safe_loads(data: bytes, **kwargs: Any) -> Any:
-    """Safely unpickle data using SafeUnpickler (strict mode — raises on unknown classes)."""
+    """Safely unpickle data using SafeUnpickler.
+
+    Unknown classes are substituted with DummyClass placeholders.
+    """
     return SafeUnpickler(io.BytesIO(data), **kwargs).load()
 
 

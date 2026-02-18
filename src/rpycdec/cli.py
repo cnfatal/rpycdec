@@ -1,6 +1,8 @@
 import argparse
 import logging
 import os
+import sys
+
 from rpycdec.decompile import decompile
 from rpycdec.rpa import extract_rpa
 from rpycdec.save import extract_save, restore_save, dump_save_info, generate_new_key
@@ -30,7 +32,7 @@ def extract_rpa_files(srcs: list[str], **kwargs):
     for src in srcs:
         with open(src, "rb") as f:
             output_path = kwargs.get("output") or os.path.dirname(src)
-            extract_rpa(f, dir=output_path)
+            extract_rpa(f, output_dir=output_path)
 
 
 def run_extract_translations(
@@ -84,7 +86,7 @@ def main():
     )
 
     decompile_parser = subparsers.add_parser("decompile", help="decompile rpyc file")
-    decompile_parser.add_argument("src", nargs=1, help="rpyc file or directory")
+    decompile_parser.add_argument("src", nargs="+", help="rpyc file or directory")
     decompile_parser.add_argument(
         "--output",
         "-o",
@@ -222,7 +224,7 @@ def main():
 
     args = argparser.parse_args()
     if args.verbose:
-        logger.setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.DEBUG)
     if not args.command:
         argparser.print_help()
         return
@@ -231,6 +233,6 @@ def main():
     if args.command in ("decompile", "save", "unrpa") and not os.environ.get(
         "RPYCDEC_NO_WARNING"
     ):
-        print(SECURITY_WARNING, file=__import__("sys").stderr)
+        print(SECURITY_WARNING, file=sys.stderr)
 
     args.func(args)

@@ -1,4 +1,5 @@
 import collections
+import datetime
 import hashlib
 import logging
 import os
@@ -201,8 +202,10 @@ class TranslationExtractor:
 # ============================================================================
 
 
-def unique_identifier(label: str | None, digest: str, existing_identifiers: set = set()) -> str:
+def unique_identifier(label: str | None, digest: str, existing_identifiers: set | None = None) -> str:
     """Generate a unique translation identifier"""
+    if existing_identifiers is None:
+        existing_identifiers = set()
     if label is None:
         base = digest
     else:
@@ -291,7 +294,7 @@ def write_dialogue_translations(
         os.makedirs(os.path.dirname(tl_path) if os.path.dirname(tl_path) else output_dir, exist_ok=True)
 
         with open(tl_path, "w", encoding="utf-8") as f:
-            f.write(f"# TODO: Translation updated at {__import__('datetime').datetime.now().isoformat()}\n\n")
+            f.write(f"# TODO: Translation updated at {datetime.datetime.now().isoformat()}\n\n")
 
             for item in items:
                 # Write source file location comment
@@ -346,7 +349,7 @@ def write_string_translations(
     tl_path = os.path.join(output_dir, "strings.rpy")
 
     with open(tl_path, "w", encoding="utf-8") as f:
-        f.write(f"# TODO: Translation updated at {__import__('datetime').datetime.now().isoformat()}\n\n")
+        f.write(f"# TODO: Translation updated at {datetime.datetime.now().isoformat()}\n\n")
         f.write(f"translate {language} strings:\n\n")
 
         for item in strings:

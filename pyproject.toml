@@ -19,6 +19,7 @@ dependencies = []
 
 [project.optional-dependencies]
 release = ["twine"]
+sign = ["ecdsa"]
 
 [project.urls]
 "Homepage" = "https://github.com/cnfatal/rpycdec"

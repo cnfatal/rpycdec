@@ -498,7 +498,7 @@ def restore_save(
         key_file: Path to security_keys.txt for re-signing (optional)
     """
     if not output_file:
-        output_file = extracted_dir.rstrip("/").rstrip(".extracted") + ".restored.save"
+        output_file = extracted_dir.rstrip("/").removesuffix(".extracted") + ".restored.save"
 
     print(f"Restoring save file from: {extracted_dir}")
     print(f"Output file: {output_file}")
@@ -604,8 +604,6 @@ def sign_data(log_data: bytes, key_file: str) -> str:
 
     def encode_line(kind: str, key: bytes, sig: bytes = b"") -> str:
         """Encode a signature line in Ren'Py format."""
-        import base64
-
         key_b64 = base64.b64encode(key).decode("ascii")
         if sig:
             sig_b64 = base64.b64encode(sig).decode("ascii")
@@ -614,8 +612,6 @@ def sign_data(log_data: bytes, key_file: str) -> str:
 
     def decode_line(line: str) -> Tuple[str, bytes, bytes]:
         """Decode a signature line from Ren'Py format."""
-        import base64
-
         parts = line.strip().split()
         if len(parts) < 2:
             return "", b"", b""
@@ -660,8 +656,6 @@ def generate_new_key(key_file: str) -> str:
         import ecdsa
     except ImportError:
         raise ImportError("ecdsa library required. Install with: pip install ecdsa")
-
-    import base64
 
     sk = ecdsa.SigningKey.generate(curve=ecdsa.NIST256p)
     vk = sk.verifying_key

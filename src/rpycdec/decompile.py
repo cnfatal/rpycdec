@@ -26,7 +26,7 @@ def decompile_file(input_file, output_path=None, **kwargs):
         code = util.get_code(stmt)
     except Exception as e:
         logger.error("decode file %s failed: %s", input_file, e)
-        raise e
+        raise
     utils.write_file(output_path, code)
     logger.info("decompile %s -> %s", input_file, output_path)
 

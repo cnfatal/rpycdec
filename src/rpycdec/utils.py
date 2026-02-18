@@ -2,6 +2,20 @@ import os
 import re
 
 
+def safe_path(base_dir: str, filename: str) -> str:
+    """Resolve *filename* under *base_dir* and guard against path traversal.
+
+    Returns the resolved absolute path.  Raises ``ValueError`` if the
+    resulting path escapes *base_dir*.
+    """
+    root = os.path.realpath(base_dir)
+    dest = os.path.realpath(os.path.join(base_dir, filename))
+    # dest must be inside root (or equal to root itself)
+    if dest != root and not dest.startswith(root + os.sep):
+        raise ValueError(f"Path traversal detected: {filename!r}")
+    return dest
+
+
 def write_file(filename: str, data: str):
     """
     write data to file

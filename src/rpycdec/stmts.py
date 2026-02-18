@@ -41,16 +41,21 @@ def read_rpyc_data(file: io.BufferedReader, slot):
     return zlib.decompress(data)
 
 
-def load(data: io.BufferedReader, slots: list[int] = [1, 2], **kwargs) -> Node | None:
+def load(data: io.BufferedReader, slots: list[int] | None = None, **kwargs) -> list[Node] | None:
+    """Load Ren'Py AST from a .rpyc file.
+
+    Tries each slot in order. Slot 1 is the original script,
+    slot 2 is the pre-translated version.
+    """
+    if slots is None:
+        slots = [1, 2]
     # 1 is statements before translation, 2 is after translation.
     for slot in slots:
         try:
             bindata = read_rpyc_data(data, slot)
-        except Exception as e:
-            logger.warning(f"Failed to read slot {slot}: {e}")
-            data.seek(0)
-            continue
-        if bindata:
+            if not bindata:
+                continue
+
             if kwargs.get("dis", False):
                 logger.info("Disassembling rpyc file...")
                 pickletools.dis(bindata)
@@ -58,21 +63,21 @@ def load(data: io.BufferedReader, slots: list[int] = [1, 2], **kwargs) -> Node |
             unpickler = SafeUnpickler(
                 io.BytesIO(bindata), encoding="utf-8", errors="surrogateescape"
             )
-            data, stmts = unpickler.load()
-
-            key = data.get("key", "unlocked")  # type: ignore
+            metadata, stmts = unpickler.load()
             return stmts
-    raise Exception("Unsupported file format or invalid file")
+        except Exception as e:
+            logger.warning(f"Failed to read slot {slot}: {e}")
+            data.seek(0)
+            continue
+    raise ValueError("Unsupported file format or invalid file")
 
 
-def load_file(filename, **kwargs) -> Node | None:
-    """
-    load renpy code from rpyc file and return ast tree.
-    """
+def load_file(filename, **kwargs) -> list[Node] | None:
+    """Load Ren'Py AST from a .rpyc/.rpymc file."""
     ext = path.splitext(filename)[1]
     if ext in [".rpy", ".rpym"]:
         raise NotImplementedError(
-            "unsupport for pase rpy file or use renpy.parser.parse() in renpy's SDK"
+            "Parsing .rpy files is not supported. Use renpy.parser.parse() from Ren'Py's SDK."
         )
     # slot 2 is for pre-translated scripts, slot 1 is for normal scripts
     slots = [2, 1] if kwargs.get("pre_translated", False) else [1, 2]

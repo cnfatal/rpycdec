@@ -6,11 +6,14 @@ The extraction is done in a streaming fashion to minimize disk I/O and temporary
 """
 
 import io
+import os
 import zipfile
 import tarfile
 import logging
 from pathlib import Path
 from typing import Optional
+
+from rpycdec.utils import safe_path
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +175,17 @@ def extract_apk(
                     )
 
                     with tarfile.open(fileobj=wrapped_stream, mode="r:gz") as tar:
-                        tar.extractall(path=private_output)
+                        # Path traversal protection
+                        for member in tar.getmembers():
+                            try:
+                                safe_path(str(private_output), member.name)
+                            except ValueError:
+                                logger.warning(
+                                    "Skipping path traversal attempt in tar: %s",
+                                    member.name,
+                                )
+                                continue
+                            tar.extract(member, path=private_output)
                         logger.info(
                             f"Extracted {len(tar.getmembers())} files from private.mp3"
                         )
