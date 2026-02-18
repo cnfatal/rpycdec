@@ -1,57 +1,17 @@
 import io
 import logging
 from os import path
-import pickle
 import pickletools
 import struct
 import zlib
 
 from renpy.ast import Node
+from rpycdec.safe_pickle import SafeUnpickler
 
 logger = logging.getLogger(__name__)
 
 # A string at the start of each rpycv2 file.
 RPYC2_HEADER = b"RENPY RPC2"
-
-
-class DummyClass(object):
-    """
-    Dummy class for unpickling.
-    """
-
-    state = None
-
-    def append(self, value):
-        if self.state is None:
-            self.state = []
-        self.state.append(value)
-
-    def __getitem__(self, key):
-        return self.__dict__[key]
-
-    def __eq__(self, __value: object) -> bool:
-        return self.__dict__ == __value.__dict__
-
-    def __setitem__(self, key, value):
-        self.__dict__[key] = value
-
-    def __getstate__(self):
-        if self.state is not None:
-            return self.state
-        return self.__dict__
-
-    def __setstate__(self, state):
-        if isinstance(state, dict):
-            self.__dict__ = state
-        else:
-            self.state = state
-
-
-class GenericUnpickler(pickle.Unpickler):
-    def find_class(self, module, name):
-        if module.startswith("store"):
-            return type(name, (DummyClass,), {"__module__": module})
-        return super().find_class(module, name)
 
 
 def read_rpyc_data(file: io.BufferedReader, slot):
@@ -95,7 +55,7 @@ def load(data: io.BufferedReader, slots: list[int] = [1, 2], **kwargs) -> Node |
                 logger.info("Disassembling rpyc file...")
                 pickletools.dis(bindata)
 
-            unpickler = GenericUnpickler(
+            unpickler = SafeUnpickler(
                 io.BytesIO(bindata), encoding="utf-8", errors="surrogateescape"
             )
             data, stmts = unpickler.load()

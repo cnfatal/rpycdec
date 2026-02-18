@@ -1,7 +1,8 @@
 import os
-import pickle
 import zlib
 from io import BufferedIOBase
+
+from rpycdec.safe_pickle import rpa_loads
 
 
 def read_util(data: BufferedIOBase, util: int = 0x00) -> bytes:
@@ -33,7 +34,7 @@ def extract_rpa(r: BufferedIOBase, dir: str | None = None):
 
     # read index
     r.seek(index_offset)
-    index = pickle.loads(zlib.decompress(r.read()))
+    index = rpa_loads(zlib.decompress(r.read()))
 
     for k, v in index.items():
         index[k] = [

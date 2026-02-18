@@ -62,6 +62,13 @@ def extract_game_from_apk(apk_path: str, **kwargs):
     )
 
 
+SECURITY_WARNING = (
+    "\033[33mSecurity Warning: This tool uses a restricted pickle unpickler with "
+    "whitelist-based class loading to mitigate arbitrary code execution risks. "
+    "However, no safeguard is perfect. Only process files from trusted sources.\033[0m"
+)
+
+
 def main():
     """
     command line tool entry.
@@ -219,4 +226,11 @@ def main():
     if not args.command:
         argparser.print_help()
         return
+
+    # Show security warning for commands that process pickle data
+    if args.command in ("decompile", "save", "unrpa") and not os.environ.get(
+        "RPYCDEC_NO_WARNING"
+    ):
+        print(SECURITY_WARNING, file=__import__("sys").stderr)
+
     args.func(args)

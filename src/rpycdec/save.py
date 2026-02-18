@@ -21,130 +21,184 @@ import os
 import pickle
 import pickletools
 import zipfile
-from typing import Any, Optional, Tuple
+from typing import Any, Tuple
+
+from rpycdec.safe_pickle import (
+    SafeUnpickler,
+    SAFE_MODULES,
+)
 
 
 class DynamicObject:
     """
     A dynamic object that can represent any Ren'Py class during unpickling.
-    Stores the original class name and module for reconstruction.
+    Stores the original class name and module for JSON round-trip serialization.
+
+    Unlike ``DummyClass`` (safe_pickle.py) which spreads state into ``__dict__``
+    for attribute access during decompilation, ``DynamicObject`` keeps state
+    as-is in ``_state`` so it can be faithfully serialized to / from JSON.
+
+    Handles all pickle reconstruction patterns:
+    - NEWOBJ/REDUCE with arguments
+    - BUILD with state (dict or opaque)
+    - APPENDS (list-like append)
+    - SETITEMS (dict-like __setitem__)
     """
 
-    def __init__(self):
-        self._state: Any = None
-        self._class_name: Optional[str] = None
-        self._module_name: Optional[str] = None
+    # Class-level defaults — overridden by type() in _on_unknown_class.
+    # Using class attrs ensures they survive even when pickle skips __init__
+    # (e.g. the NEWOBJ opcode calls __new__ only).
+    _class_name: str = ""
+    _module_name: str = ""
+    _state: Any
+    _items: list[Any] | None
+    _new_args: tuple[Any, ...] | None
 
-    def __setstate__(self, state):
+    def __new__(cls, *args: Any, **kwargs: Any) -> "DynamicObject":
+        self = object.__new__(cls)
+        self._state = None
+        self._items = None
+        self._new_args = args if args else None
+        return self
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        # __new__ already handled initialization; nothing to do.
+        pass
+
+    # -- pickle BUILD --
+
+    def __setstate__(self, state: Any) -> None:
         self._state = state
 
-    def __getstate__(self):
+    def __getstate__(self) -> Any:
         return self._state
+
+    # -- pickle APPENDS --
+
+    def append(self, item: Any) -> None:
+        if self._items is None:
+            self._items = []
+        self._items.append(item)
+
+    # -- pickle SETITEMS --
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        if self._state is None:
+            self._state = {}
+        if isinstance(self._state, dict):
+            self._state[key] = value
+
+    # -- re-pickling / repr --
 
     def __reduce__(self):
         """Support re-pickling by returning the original class info."""
-        # Return a reconstruction function that will restore the original class
         return (
             _reconstruct_object,
             (self._module_name, self._class_name, self._state),
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{self._module_name}.{self._class_name}: {self._state}>"
+
+    # -- JSON round-trip helpers --
 
     def to_json_dict(self) -> dict:
         """Convert to a JSON-serializable dictionary."""
-        return {
+        result: dict[str, Any] = {
             "__class__": self._class_name,
             "__module__": self._module_name,
             "__state__": _to_json_serializable(self._state),
         }
+        if self._items:
+            result["__items__"] = _to_json_serializable(self._items)
+        return result
 
     @classmethod
     def from_json_dict(cls, data: dict) -> "DynamicObject":
         """Create a DynamicObject from a JSON dictionary."""
         obj = cls()
-        obj._class_name = data.get("__class__")
-        obj._module_name = data.get("__module__")
+        obj._class_name = data.get("__class__", "")
+        obj._module_name = data.get("__module__", "")
         obj._state = _from_json_serializable(data.get("__state__"))
+        items = data.get("__items__")
+        if items:
+            obj._items = _from_json_serializable(items)
         return obj
+
+
+# Modules allowed for reconstruction (renpy/store fake packages + safe stdlib)
+_RECONSTRUCT_SAFE_PREFIXES = ("renpy.", "store.")
 
 
 def _reconstruct_object(module_name: str, class_name: str, state: Any) -> Any:
-    """Reconstruct an object from its module, class name, and state."""
-    # Try to import the actual class
-    try:
-        module = __import__(module_name, fromlist=[class_name])
-        cls = getattr(module, class_name)
-        obj = object.__new__(cls)
-        if state is not None:
-            if hasattr(obj, "__setstate__"):
-                obj.__setstate__(state)
-            elif isinstance(state, dict):
-                obj.__dict__.update(state)
-        return obj
-    except (ImportError, AttributeError):
-        # Fall back to DynamicObject
-        obj = DynamicObject()
-        obj._class_name = class_name
-        obj._module_name = module_name
-        obj._state = state
-        return obj
+    """Reconstruct an object from its module, class name, and state.
 
-
-class SaveUnpickler(pickle.Unpickler):
+    Only allows importing from renpy.*/store.* (our fake packages) and
+    whitelisted standard library modules. All other modules fall back
+    to DynamicObject.
     """
-    Custom unpickler that handles unknown Ren'Py classes by creating
-    DynamicObject instances that preserve the original class information.
+    # Only allow our fake packages and whitelisted modules
+    is_safe = (
+        any(module_name.startswith(p) for p in _RECONSTRUCT_SAFE_PREFIXES)
+        or module_name in ("renpy", "store")
+        or module_name in SAFE_MODULES
+    )
+    if is_safe:
+        try:
+            module = __import__(module_name, fromlist=[class_name])
+            cls = getattr(module, class_name)
+            obj = object.__new__(cls)
+            if state is not None:
+                if hasattr(obj, "__setstate__"):
+                    obj.__setstate__(state)
+                elif isinstance(state, dict):
+                    obj.__dict__.update(state)
+            return obj
+        except (ImportError, AttributeError):
+            pass
+
+    # Fall back to DynamicObject
+    obj = DynamicObject()
+    obj._class_name = class_name
+    obj._module_name = module_name
+    obj._state = state
+    return obj
+
+
+class SaveUnpickler(SafeUnpickler):
+    """Safe unpickler for Ren'Py save files.
+
+    Extends SafeUnpickler to replace unknown classes with DynamicObject
+    instances (instead of raising) so save data can be serialized to JSON.
     """
 
     def __init__(
         self,
         file,
         *,
-        fix_imports: bool = True,
+        fix_imports: bool = False,
         encoding: str = "ASCII",
         errors: str = "strict",
         verbose: bool = False,
     ):
-        super().__init__(file, fix_imports=fix_imports, encoding=encoding, errors=errors)
+        super().__init__(
+            file, fix_imports=fix_imports, encoding=encoding, errors=errors
+        )
         self.verbose = verbose
 
-    def find_class(self, module: str, name: str):
-        # Allow builtins
-        if module == "builtins":
-            return super().find_class(module, name)
-
-        # Try to import from fake renpy/store packages first
-        try:
-            return super().find_class(module, name)
-        except (ImportError, AttributeError):
-            pass
-
+    def _on_unknown_class(self, module: str, name: str) -> type:
+        """Return a DynamicObject subclass instead of raising."""
         if self.verbose:
             print(f"Creating dynamic class: {module}.{name}")
-
-        # Create a dynamic class that preserves the original info
-        class DynamicClass(DynamicObject):
-            pass
-
-        DynamicClass.__name__ = name
-        DynamicClass.__module__ = module
-        DynamicClass.__qualname__ = name
-
-        # Store module and class info for new instances
-        _module = module
-        _name = name
-
-        original_init = DynamicClass.__init__
-
-        def custom_init(self):
-            original_init(self)
-            self._class_name = _name
-            self._module_name = _module
-
-        DynamicClass.__init__ = custom_init  # type: ignore
-        return DynamicClass
+        return type(
+            name,
+            (DynamicObject,),
+            {
+                "__module__": module,
+                "_class_name": name,
+                "_module_name": module,
+            },
+        )
 
 
 class SavePickler(pickle.Pickler):
@@ -605,9 +659,7 @@ def generate_new_key(key_file: str) -> str:
     try:
         import ecdsa
     except ImportError:
-        raise ImportError(
-            "ecdsa library required. Install with: pip install ecdsa"
-        )
+        raise ImportError("ecdsa library required. Install with: pip install ecdsa")
 
     import base64
 

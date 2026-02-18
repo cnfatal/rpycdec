@@ -4,11 +4,12 @@ A tool for decompiling Ren'py compiled script files (.rpyc and .rpymc).
 
 ## Features
 
-- Decompile .rpyc and .rpymc files to readable Python code
+- Decompile `.rpyc` and `.rpymc` files to readable Ren'Py script code
 - Extract RPA archives
+- Extract and edit Ren'Py save files (`.save` → JSON → `.save`)
 - Extract Ren'Py games from Android APK files
-- Parse translations from .rpyc and .rpymc files to `tl/{language}/` directories
-- Support for multiple Ren'py versions (7.x, 8.x)
+- Extract translations from compiled scripts to `tl/{language}/` directories
+- Support for multiple Ren'Py versions (7.x, 8.x)
 
 ## Installation
 
@@ -60,31 +61,29 @@ Extract translations:
 rpycdec extract-translate /path/to/game/ -l Chinese
 ```
 
-### Library Usage
+## Security Warning
 
-```python
-from rpycdec import decompile, extract_rpa
+This tool processes `.rpyc`, `.rpymc`, `.rpa`, and `.save` files which use Python's `pickle` format internally. rpycdec uses restricted unpicklers with whitelist-based class loading to mitigate arbitrary code execution risks, but **no pickle safeguard is perfect**. Only process files from sources you trust.
 
-# decompile a file
-with open('script.rpyc', 'rb') as input_file, open('script.rpy', 'wb') as output_file:
-    decompile(input_file, output_file)
+Set `RPYCDEC_NO_WARNING=1` to suppress the CLI security warning.
 
-# Extract RPA archive
-with open('archive.rpa', 'rb') as f:
-    extract_rpa(f, './extracted/')
-```
+See also: [Python pickle security warning](https://docs.python.org/3/library/pickle.html#module-pickle)
 
 ## Troubleshooting
 
-- **Q: It always raise pickle `import ** \nModuleNotFoundError: No module named '**\*'` error.**
+- **Q: Pickle error `ModuleNotFoundError: No module named '...'`**
 
-  A: It's because the our fake packages("renpy","store") is not contains the object you want to decompile. Please open an issue and tell us the renpy version and the rpyc file you want to decompile. Join our telegram group to get help also be better.
+  A: This means our fake `renpy`/`store` packages don't cover the class your file needs. Please [open an issue](https://github.com/cnfatal/rpycdec/issues) with the Ren'Py version and the file that failed.
 
 ## Contributing
 
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+Contributions are welcome! Please [open an issue](https://github.com/cnfatal/rpycdec/issues) before submitting major changes so we can discuss the approach.
 
 ## Community & Support
 
-- [GitHub Issues](https://github.com/cnfatal/rpycdec/issues) - Bug reports and feature requests
-- [Telegram Group](https://t.me/rpycdec) - Community discussion and help
+- [GitHub Issues](https://github.com/cnfatal/rpycdec/issues) — Bug reports and feature requests
+- [Telegram Group](https://t.me/rpycdec) — Community discussion and support
+
+## Alternative
+
+- [unrpyc](https://github.com/CensoredUsername/unrpyc) - The well-established and widely-used Ren'Py script decompiler
