@@ -253,18 +253,13 @@ def elide_filename(filename: str, game_dir: str = "") -> str:
 
 
 def get_translation_filename(source_filename: str) -> str:
-    """Generate translation filename from source filename"""
-    basename = os.path.basename(source_filename)
-    # Remove .rpyc/.rpymc suffix
-    if basename.endswith(".rpyc"):
-        basename = basename[:-1]
-    elif basename.endswith(".rpymc"):
-        basename = basename[:-1]
-    elif basename.endswith(".rpy"):
-        pass
-    elif basename.endswith(".rpym"):
-        basename = basename[:-1] + ".rpy"
-    return basename
+    """Generate translation filename from source filename, preserving directory structure"""
+    # Remove .rpyc/.rpymc compiled suffix to get the source .rpy/.rpym extension
+    if source_filename.endswith(".rpyc"):
+        return source_filename[:-1]
+    elif source_filename.endswith(".rpymc"):
+        return source_filename[:-1]
+    return source_filename
 
 
 def write_dialogue_translations(
