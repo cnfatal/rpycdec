@@ -4,7 +4,7 @@ import os
 import sys
 
 from rpycdec.decompile import decompile
-from rpycdec.rpa import extract_rpa
+from rpycdec.rpa import create_rpa, extract_rpa
 from rpycdec.save import extract_save, restore_save, dump_save_info, generate_new_key
 from rpycdec.translate import extract_translations
 from rpycdec.apk import extract_apk
@@ -33,6 +33,17 @@ def extract_rpa_files(srcs: list[str], **kwargs):
         with open(src, "rb") as f:
             output_path = kwargs.get("output") or os.path.dirname(src)
             extract_rpa(f, output_dir=output_path)
+
+
+def create_rpa_archive(srcs: list[str], output: str, **kwargs):
+    """
+    create rpa archive.
+    """
+    create_rpa(
+        output,
+        srcs,
+        base_dir=kwargs.get("base"),
+    )
 
 
 def run_extract_translations(
@@ -108,6 +119,29 @@ def main():
     )
     unrpa_parser.set_defaults(
         func=lambda args: extract_rpa_files(args.file, **vars(args))
+    )
+
+    rpa_parser = subparsers.add_parser("rpa", help="create rpa archive")
+    rpa_parser.add_argument("src", nargs="+", help="file or directory to add")
+    rpa_parser.add_argument(
+        "--output",
+        "-o",
+        required=True,
+        help="output .rpa archive path",
+    )
+    rpa_parser.add_argument(
+        "--base",
+        help=(
+            "base directory for archive names "
+            "(default: source directory for a single directory, otherwise common parent)"
+        ),
+    )
+    rpa_parser.set_defaults(
+        func=lambda args: create_rpa_archive(
+            args.src,
+            args.output,
+            base=args.base,
+        )
     )
 
     extract_game_parser = subparsers.add_parser(
