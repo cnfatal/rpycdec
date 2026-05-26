@@ -15,8 +15,50 @@ def make_pycode(code_str):
     return pycode
 
 
+class TestPythonGetCode(unittest.TestCase):
+    """Tests for Python.get_code() keyword order and correctness."""
+
+    def _make_node(self, code_str, store=None, hide=None):
+        node = ast.Python(loc=("script.rpyc", 1))
+        node.code = make_pycode(code_str)
+        if store is not None:
+            node.store = store
+        if hide is not None:
+            node.hide = hide
+        return node
+
+    def test_single_line_shorthand(self):
+        """Single-line Python without store/hide uses $ shorthand."""
+        node = self._make_node("flag = True")
+        self.assertEqual(node.get_code(), "$ flag = True")
+
+    def test_hide_before_store(self):
+        """'hide' must appear before 'in <store>' per Ren'Py grammar."""
+        node = self._make_node("flag = True", hide=True, store="store.mystore")
+        result = node.get_code()
+        self.assertIn("python hide in mystore:", result)
+
+    def test_hide_only(self):
+        """python hide: block without store."""
+        node = self._make_node("flag = True", hide=True)
+        result = node.get_code()
+        self.assertTrue(result.startswith("python hide:"))
+
+    def test_store_only(self):
+        """python in <store>: block without hide."""
+        node = self._make_node("flag = True", store="store.mystore")
+        result = node.get_code()
+        self.assertTrue(result.startswith("python in mystore:"))
+
+    def test_multiline(self):
+        """Multiline code produces a python: block."""
+        node = self._make_node("flag = True\nother = False")
+        result = node.get_code()
+        self.assertIn("python:", result)
+
+
 class TestEarlyPythonGetCode(unittest.TestCase):
-    """Tests for EarlyPython.get_code() - regression for AttributeError on missing 'hide'"""
+    """Tests for EarlyPython.get_code() — keyword order and missing-attribute safety."""
 
     def _make_node(self, code_str, store=None, hide=None):
         node = ast.EarlyPython(loc=("script.rpyc", 1))
@@ -30,34 +72,36 @@ class TestEarlyPythonGetCode(unittest.TestCase):
     def test_single_line_no_hide_attr(self):
         """EarlyPython without 'hide' attribute should not raise AttributeError."""
         node = self._make_node("flag = True")
-        result = node.get_code()
-        self.assertEqual(result, "$ flag = True")
+        self.assertEqual(node.get_code(), "$ flag = True")
 
     def test_single_line_hide_false(self):
         """EarlyPython with hide=False should use $ shorthand."""
         node = self._make_node("flag = True", hide=False)
-        result = node.get_code()
-        self.assertEqual(result, "$ flag = True")
+        self.assertEqual(node.get_code(), "$ flag = True")
 
-    def test_hide_true(self):
-        """EarlyPython with hide=True should emit 'python early hide:' block."""
+    def test_hide_before_store(self):
+        """'hide' must appear before 'in <store>' per Ren'Py grammar."""
+        node = self._make_node("flag = True", hide=True, store="store.mystore")
+        result = node.get_code()
+        self.assertIn("python early hide in mystore:", result)
+
+    def test_hide_only(self):
+        """python early hide: block without store."""
         node = self._make_node("flag = True", hide=True)
         result = node.get_code()
-        self.assertIn("python early", result)
-        self.assertIn("hide", result)
+        self.assertTrue(result.startswith("python early hide:"))
 
-    def test_with_store(self):
-        """EarlyPython with store should emit 'python early in <store>:' block."""
+    def test_store_only(self):
+        """python early in <store>: block without hide."""
         node = self._make_node("flag = True", store="store.mystore")
         result = node.get_code()
-        self.assertIn("python early", result)
-        self.assertIn("in mystore", result)
+        self.assertTrue(result.startswith("python early in mystore:"))
 
     def test_multiline(self):
-        """EarlyPython with multiline code should emit 'python early:' block."""
+        """Multiline code should emit 'python early:' block."""
         node = self._make_node("flag = True\nother = False")
         result = node.get_code()
-        self.assertIn("python early", result)
+        self.assertIn("python early:", result)
 
 
 if __name__ == "__main__":

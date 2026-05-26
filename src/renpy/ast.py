@@ -415,10 +415,10 @@ class Python(Node):
             return f"$ {inner_code}"
 
         start = "python"
-        if store:
-            start += f" in {store}"
         if hide:
             start += " hide"
+        if store:
+            start += f" in {store}"
         rv = [start + ":"]
         rv.append(util.indent(f"{inner_code}"))
         return "\n".join(rv)
@@ -439,10 +439,10 @@ class EarlyPython(Node):
         if not storename and not hide and len(inner_code.split("\n")) == 1:
             return f"$ {inner_code}"
         start = "python early"
+        if hide:
+            start += " hide"
         if storename:
             start += f" in {storename}"
-        if util.attr(self, "hide"):
-            start += " hide"
         return util.label_code(start, util.attr(self, "code"), **kwargs)
 
 
