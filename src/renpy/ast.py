@@ -435,7 +435,8 @@ class EarlyPython(Node):
         """
         inner_code = util.get_code(self.code, **kwargs)
         storename = parse_store_name(util.attr(self, "store"))
-        if not storename and not self.hide and len(inner_code.split("\n")) == 1:
+        hide = util.attr(self, "hide")
+        if not storename and not hide and len(inner_code.split("\n")) == 1:
             return f"$ {inner_code}"
         start = "python early"
         if storename:
