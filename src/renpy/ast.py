@@ -244,6 +244,17 @@ class Scry(object):
 class Say(Node):
     """
     https://www.renpy.org/doc/html/dialogue.html#say-statement
+
+    Grammar::
+
+        [WHO [ATTRIBUTES] [@TEMPORARY_ATTRIBUTES]] WHAT [nointeract] [id IDENTIFIER] [with TRANSITION]
+
+    Examples::
+
+        "Hello, world."
+        e "Hello, world."
+        e happy "Hello, world." with dissolve
+        e "Hello, world." id greet_001
     """
 
     def get_code(self, dialogue_filter=None, **kwargs):
@@ -351,12 +362,22 @@ class Label(Node):
     """
     https://www.renpy.org/doc/html/label.html
 
-    label sample1:
-        "Here is 'sample1' label."
+    Grammar::
 
-    label sample2(a="default"):
-        "Here is 'sample2' label."
-        "a = [a]"
+        label NAME [PARAMETERS] [hide] :
+            BLOCK
+
+    Examples::
+
+        label sample1:
+            "Here is 'sample1' label."
+
+        label sample2(a="default"):
+            "Here is 'sample2' label."
+            "a = [a]"
+
+        label hidden_scope hide:
+            $ x = 1
     """
 
     translation_relevant = True
@@ -395,13 +416,27 @@ class Label(Node):
 
 class Python(Node):
     """
-    # https://www.renpy.org/doc/html/python.html#python-statements
+    https://www.renpy.org/doc/html/python.html#python-statements
 
+    Grammar::
 
-    python:
-        flag = True
+        python [hide] [in STORE] :
+            BLOCK
 
-    $ flag = True
+        $ PYTHON_CODE
+
+    Examples::
+
+        python:
+            flag = True
+
+        python hide:
+            secret = "not in global namespace"
+
+        python in mystore:
+            myvar = 1
+
+        $ flag = True
     """
 
     def get_code(self, **kwargs) -> str:
@@ -425,14 +460,30 @@ class Python(Node):
 
 
 class EarlyPython(Node):
+    """
+    https://www.renpy.org/doc/html/python.html#python-statements
 
-    def get_code(self, **kwargs) -> str:
-        """
+    Like ``python``, but runs before all other ``init`` blocks.
+
+    Grammar::
+
+        python early [hide] [in STORE] :
+            BLOCK
+
+        $ PYTHON_CODE
+
+    Examples::
+
         python early:
             flag = True
 
+        python early hide:
+            secret = "not in global namespace"
+
         $ flag = True
-        """
+    """
+
+    def get_code(self, **kwargs) -> str:
         inner_code = util.get_code(self.code, **kwargs)
         storename = parse_store_name(util.attr(self, "store"))
         hide = util.attr(self, "hide")
@@ -447,19 +498,22 @@ class EarlyPython(Node):
 
 
 class Image(Node):
+    """
+    https://www.renpy.org/doc/html/displayables.html#images
+
+    Grammar::
+
+        image NAME = EXPRESSION
+        image NAME :
+            atl_block
+
+    Examples::
+
+        image logo = "logo.png"
+        image logo = Image("logo.png", xalign=1.0)
+    """
 
     def get_code(self, **kwargs) -> str:
-        """
-        https://www.renpy.org/doc/html/displayables.html#images
-
-        # These two lines are equivalent.
-        image logo = "logo.png"
-        image logo = Image("logo.png")
-
-        # Using Image allows us to specify a default position as part of
-        # an image.
-        image logo right = Image("logo.png", xalign=1.0)
-        """
         start = "image"
         if self.imgname:
             start += f" {' '.join(self.imgname)}"
@@ -496,6 +550,22 @@ class Transform(Node):
 
 
 class Show(Node):
+    """
+    https://www.renpy.org/doc/html/displaying_images.html#show-statement
+
+    Grammar::
+
+        show (NAME | expression EXPR) [onlayer LAYER] [at TRANSFORMS] [as TAG]
+             [zorder ZORDER] [behind TAGS] [with TRANSITION]
+        show NAME :
+            atl_block
+
+    Examples::
+
+        show eileen happy
+        show eileen happy at left with dissolve
+        show expression "eileen_happy.png" as eileen
+    """
 
     def get_code(self, **kwargs) -> str:
         start = "show"
@@ -557,6 +627,18 @@ class Scene(Node):
 
 
 class Hide(Node):
+    """
+    https://www.renpy.org/doc/html/displaying_images.html#hide-statement
+
+    Grammar::
+
+        hide (NAME | expression EXPR) [onlayer LAYER] [with TRANSITION]
+
+    Examples::
+
+        hide eileen
+        hide eileen with dissolve
+    """
 
     def get_code(self, **kwargs) -> str:
         start = "hide"
@@ -570,6 +652,18 @@ class Hide(Node):
 
 
 class With(Node):
+    """
+    https://www.renpy.org/doc/html/displaying_images.html#with-statement
+
+    Grammar::
+
+        with TRANSITION
+
+    Examples::
+
+        with dissolve
+        with fade
+    """
 
     def get_code(self, **kwargs) -> str:
         paired = util.attr(self, "paired")
@@ -620,6 +714,18 @@ class Call(Node):
 
 
 class Return(Node):
+    """
+    https://www.renpy.org/doc/html/label.html#return-statement
+
+    Grammar::
+
+        return [EXPRESSION]
+
+    Examples::
+
+        return
+        return "result"
+    """
 
     def __new__(cls, *args, **kwargs):
         self = Node.__new__(cls)
@@ -795,7 +901,27 @@ class While(Node):
 
 
 class If(Node):
-    entries: list[tuple[str, list[Node]]]
+    """
+    https://www.renpy.org/doc/html/conditional.html#if-statement
+
+    Grammar::
+
+        if CONDITION :
+            BLOCK
+        [elif CONDITION :
+            BLOCK]
+        [else :
+            BLOCK]
+
+    Examples::
+
+        if flag:
+            "Flag is set."
+        elif other:
+            "Other is set."
+        else:
+            "Nothing is set."
+    """
 
     def get_code(self, **kwargs) -> str:
         rv = []
@@ -883,13 +1009,20 @@ class StoreNamespace(object):
     pass
 
 
-# https://www.renpy.org/doc/html/python.html#define-statement
-"""
-define -2 gui.accent_color = '#ffdd1e'
-"""
-
-
 class Define(Node):
+    """
+    https://www.renpy.org/doc/html/python.html#define-statement
+
+    Grammar::
+
+        define [PRIORITY] [STORE.]NAME (= | |= | += ) EXPRESSION
+
+    Examples::
+
+        define e = Character("Eileen")
+        define -2 gui.accent_color = '#ffdd1e'
+        define config.tag_layer |= { "eileen": "master" }
+    """
 
     def get_code(self, **kwargs) -> str:
 
@@ -912,6 +1045,18 @@ default_statements = []
 
 
 class Default(Node):
+    """
+    https://www.renpy.org/doc/html/python.html#default-statement
+
+    Grammar::
+
+        default [STORE.]NAME = EXPRESSION
+
+    Examples::
+
+        default points = 0
+        default mystore.flag = False
+    """
 
     def get_code(self, **kwargs) -> str:
         # trim store or store. prefix
@@ -922,8 +1067,15 @@ class Default(Node):
         return f"default {varname} = {util.get_code(self.code,**kwargs)}"
 
 
-# https://www.renpy.org/doc/html/screens.html#screen-language
 class Screen(Node):
+    """
+    https://www.renpy.org/doc/html/screens.html#screen-language
+
+    Grammar::
+
+        screen NAME [PARAMETERS] [KEYWORDS]:
+            SCREEN_LANGUAGE_BLOCK
+    """
 
     def get_code(self, **kwargs) -> str:
         return util.get_code(self.screen, **kwargs)
@@ -1013,7 +1165,22 @@ class TranslateString(Node):
 
 
 class TranslatePython(Node):
-    translation_relevant = True
+    """
+    https://www.renpy.org/doc/html/translating_renpy.html
+
+    A ``python`` block inside a ``translate`` statement, run for a specific
+    language during init.
+
+    Grammar::
+
+        translate LANGUAGE python:
+            BLOCK
+
+    Example::
+
+        translate arabic python:
+            gui.REGULAR_FONT = "DejaVuSans.ttf"
+    """
 
     language: str
     code: PyCode
