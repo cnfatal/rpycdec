@@ -227,13 +227,16 @@ class PyExpr(str):
 
 
 class PyCode(object):
-    def __getstate__(self):
-        return self.state
-
     def __setstate__(self, state):
-        self.state = state
+        if isinstance(state, dict):
+            self.__dict__.update(state)
+        else:
+            self.state = state
 
     def get_code(self, **kwargs) -> str:
+        source = getattr(self, "source", None)
+        if source:
+            return source
         return util.get_code(self.state[1])
 
 
@@ -1002,7 +1005,16 @@ class UserStatement(Node):
 
 
 class PostUserStatement(Node):
-    pass
+    """Post-execution node for user-defined statements (Ren'Py 8.x+).
+
+    Appears after a UserStatement to handle post-execution logic.
+    Carries a reference back to the parent statement.
+    """
+
+    parent: Node | None = None
+
+    def get_code(self, **kwargs) -> str:
+        return ""
 
 
 class StoreNamespace(object):
@@ -1282,7 +1294,39 @@ class Style(Node):
 
 
 class Testcase(Node):
-    pass
+    """
+    Ren'Py 8.x+: Represents a testcase statement for automated testing.
+
+    Grammar::
+
+        testcase LABEL [OPTIONS] :
+            BLOCK
+
+    Example::
+
+        testcase "test_menu" label start:
+            "Hello"
+    """
+
+    label: str = ""
+    test: str = ""
+    block: list[Node] = []
+    description: str | None = None
+    options: str | None = None
+
+    def get_code(self, **kwargs) -> str:
+        start = "testcase"
+        label = util.attr(self, "label")
+        if label:
+            start += f" {translation.encode_say_string(label)}"
+        test = util.attr(self, "test")
+        if test:
+            start += f" label {test}"
+        options = util.attr(self, "options")
+        if options:
+            start += f" {options}"
+        block = util.attr(self, "block")
+        return util.label_code(start, block, **kwargs)
 
 
 class Camera(Node):

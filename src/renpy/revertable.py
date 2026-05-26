@@ -40,7 +40,15 @@ class RevertableDict(dict):
 
 
 class RevertableSet(set):
-    pass
+    def __setstate__(self, state):
+        if isinstance(state, tuple):
+            self.update(state[0].keys())
+        else:
+            self.update(state)
+
+    # Required to ensure that getstate and setstate are called.
+    __reduce__ = object.__reduce__
+    __reduce_ex__ = object.__reduce_ex__
 
 
 class RevertableObject(object):

@@ -130,6 +130,11 @@ class DummyClass(object):
                  if not k.startswith("_new_") and k != "_state"}
         return f"<{module}.{name}: {attrs}>"
 
+    def get_code(self, **kwargs) -> str:
+        name = getattr(type(self), "__name__", "<?>")
+        logger.warning("Unrecognized node %s in decompile output", name)
+        return f"# <unrecognized: {name}>"
+
 
 def make_dummy_class(module: str, name: str) -> type:
     """Create a named DummyClass subclass for a given module.name."""
