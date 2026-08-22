@@ -20,6 +20,7 @@ dependencies = []
 [project.optional-dependencies]
 release = ["twine"]
 sign = ["ecdsa"]
+dev = ["ruff>=0.16.4,<0.17"]
 
 [project.urls]
 "Homepage" = "https://github.com/cnfatal/rpycdec"
@@ -36,3 +37,19 @@ packages = ["src/rpycdec", "src/renpy", "src/store"]
 
 [tool.hatch.version]
 source = "vcs"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+extend-exclude = ["src/renpy", "src/store"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP035"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/rpycdec/__init__.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

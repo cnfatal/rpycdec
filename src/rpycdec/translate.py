@@ -3,11 +3,12 @@ import datetime
 import hashlib
 import logging
 import os
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Callable, Iterator, Optional
+from typing import Optional
 
 import renpy.ast
-from rpycdec import utils, stmts
+from rpycdec import stmts, utils
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,11 @@ class TranslationExtractor:
         # Track label
         if isinstance(node, renpy.ast.Label):
             if not getattr(node, "hide", False):
-                name = node.get_name() if hasattr(node, "get_name") else getattr(node, "name", None)
+                name = (
+                    node.get_name()
+                    if hasattr(node, "get_name")
+                    else getattr(node, "name", None)
+                )
                 if name and isinstance(name, str) and not name.startswith("_"):
                     self.label = name
 
@@ -154,7 +159,9 @@ class TranslationExtractor:
                     )
                 )
 
-    def _extract_user_statement(self, node: renpy.ast.UserStatement, filename: str) -> None:
+    def _extract_user_statement(
+        self, node: renpy.ast.UserStatement, filename: str
+    ) -> None:
         """Extract strings from UserStatement node"""
         try:
             translation_strings = node.get_translation_strings()
@@ -202,7 +209,9 @@ class TranslationExtractor:
 # ============================================================================
 
 
-def unique_identifier(label: str | None, digest: str, existing_identifiers: set | None = None) -> str:
+def unique_identifier(
+    label: str | None, digest: str, existing_identifiers: set | None = None
+) -> str:
     """Generate a unique translation identifier"""
     if existing_identifiers is None:
         existing_identifiers = set()
@@ -286,10 +295,15 @@ def write_dialogue_translations(
 
     for tl_filename, items in by_file.items():
         tl_path = os.path.join(output_dir, tl_filename)
-        os.makedirs(os.path.dirname(tl_path) if os.path.dirname(tl_path) else output_dir, exist_ok=True)
+        os.makedirs(
+            os.path.dirname(tl_path) if os.path.dirname(tl_path) else output_dir,
+            exist_ok=True,
+        )
 
         with open(tl_path, "w", encoding="utf-8") as f:
-            f.write(f"# TODO: Translation updated at {datetime.datetime.now().isoformat()}\n\n")
+            f.write(
+                f"# TODO: Translation updated at {datetime.datetime.now().isoformat()}\n\n"
+            )
 
             for item in items:
                 # Write source file location comment
@@ -344,7 +358,9 @@ def write_string_translations(
     tl_path = os.path.join(output_dir, "strings.rpy")
 
     with open(tl_path, "w", encoding="utf-8") as f:
-        f.write(f"# TODO: Translation updated at {datetime.datetime.now().isoformat()}\n\n")
+        f.write(
+            f"# TODO: Translation updated at {datetime.datetime.now().isoformat()}\n\n"
+        )
         f.write(f"translate {language} strings:\n\n")
 
         for item in strings:
@@ -455,6 +471,3 @@ def extract_translations(
     )
 
     return stats
-
-
-

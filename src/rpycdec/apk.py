@@ -6,10 +6,9 @@ The extraction is done in a streaming fashion to minimize disk I/O and temporary
 """
 
 import io
-import os
-import zipfile
-import tarfile
 import logging
+import tarfile
+import zipfile
 from pathlib import Path
 from typing import Optional
 

@@ -1,4 +1,5 @@
 """Tests for renpy.ast node code generation"""
+
 import os
 import sys
 import unittest

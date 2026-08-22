@@ -1,4 +1,5 @@
 """Tests for rpycdec.translate module"""
+
 import os
 import sys
 import tempfile
@@ -8,11 +9,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import renpy.ast
 from rpycdec.translate import (
-    TranslationExtractor,
     DialogueTranslation,
     StringTranslation,
-    get_translation_filename,
+    TranslationExtractor,
     elide_filename,
+    get_translation_filename,
     quote_unicode,
     unique_identifier,
     write_dialogue_translations,
@@ -31,9 +32,7 @@ class TestGetTranslationFilename(unittest.TestCase):
 
     def test_subdirectory_preserved(self):
         """Directory structure should be preserved (was a bug: basename stripped dirs)"""
-        self.assertEqual(
-            get_translation_filename("sub/intro.rpyc"), "sub/intro.rpy"
-        )
+        self.assertEqual(get_translation_filename("sub/intro.rpyc"), "sub/intro.rpy")
 
     def test_nested_subdirectory_preserved(self):
         self.assertEqual(
@@ -157,7 +156,7 @@ class TestWriteDialogueTranslations(unittest.TestCase):
             )
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = write_dialogue_translations(
+            write_dialogue_translations(
                 dialogues, tmpdir, "chinese", empty_translation=False
             )
             tl_file = os.path.join(tmpdir, "script.rpy")
@@ -211,9 +210,7 @@ class TestWriteDialogueTranslations(unittest.TestCase):
 
 class TestWriteStringTranslations(unittest.TestCase):
     def test_writes_strings_file(self):
-        strings = [
-            StringTranslation(filename="script.rpyc", linenumber=2, text="Play")
-        ]
+        strings = [StringTranslation(filename="script.rpyc", linenumber=2, text="Play")]
         with tempfile.TemporaryDirectory() as tmpdir:
             count = write_string_translations(
                 strings, tmpdir, "chinese", empty_translation=False
@@ -254,7 +251,9 @@ class TestCLIExtractTranslate(unittest.TestCase):
                 main()
             except SystemExit as e:
                 if e.code != 0:
-                    self.fail(f"CLI raised SystemExit({e.code}) - --language may not be recognized")
+                    self.fail(
+                        f"CLI raised SystemExit({e.code}) - --language may not be recognized"
+                    )
 
     def test_language_short_flag(self):
         """The -l short flag must also work"""
@@ -266,7 +265,9 @@ class TestCLIExtractTranslate(unittest.TestCase):
                 main()
             except SystemExit as e:
                 if e.code != 0:
-                    self.fail(f"CLI raised SystemExit({e.code}) - -l flag may not be recognized")
+                    self.fail(
+                        f"CLI raised SystemExit({e.code}) - -l flag may not be recognized"
+                    )
 
     def test_creates_tl_directory(self):
         """extract-translate must create tl/<language>/ directory in output"""

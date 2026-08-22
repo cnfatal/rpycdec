@@ -56,6 +56,7 @@ SAFE_BUILTINS: set[str] = {
 # DummyClass — safe placeholder for unknown classes
 # ---------------------------------------------------------------------------
 
+
 class DummyClass(object):
     """
     Safe placeholder class for unpickling unknown classes.
@@ -101,15 +102,17 @@ class DummyClass(object):
         if self._state is not None:
             return self._state
         # Exclude internal fields from state
-        return {k: v for k, v in self.__dict__.items()
-                if not k.startswith("_new_")}
+        return {k: v for k, v in self.__dict__.items() if not k.startswith("_new_")}
 
     def __setstate__(self, state: Any) -> None:
         # Handle (state, slotstate) tuple pattern from __slots__ classes
         slotstate = None
-        if (isinstance(state, tuple) and len(state) == 2
-                and (state[0] is None or isinstance(state[0], dict))
-                and (state[1] is None or isinstance(state[1], dict))):
+        if (
+            isinstance(state, tuple)
+            and len(state) == 2
+            and (state[0] is None or isinstance(state[0], dict))
+            and (state[1] is None or isinstance(state[1], dict))
+        ):
             state, slotstate = state
 
         if isinstance(state, dict):
@@ -126,8 +129,11 @@ class DummyClass(object):
         name = getattr(cls, "__name__", "?")
         if self._state is not None:
             return f"<{module}.{name}: state={self._state!r}>"
-        attrs = {k: v for k, v in self.__dict__.items()
-                 if not k.startswith("_new_") and k != "_state"}
+        attrs = {
+            k: v
+            for k, v in self.__dict__.items()
+            if not k.startswith("_new_") and k != "_state"
+        }
         return f"<{module}.{name}: {attrs}>"
 
     def get_code(self, **kwargs) -> str:
@@ -144,6 +150,7 @@ def make_dummy_class(module: str, name: str) -> type:
 # ---------------------------------------------------------------------------
 # SafeUnpickler — base restricted unpickler
 # ---------------------------------------------------------------------------
+
 
 class SafeUnpickler(pickle.Unpickler):
     """Base restricted unpickler with whitelist-based class loading.
@@ -199,9 +206,23 @@ class SafeUnpickler(pickle.Unpickler):
 # ---------------------------------------------------------------------------
 
 # Primitive builtin types that are always safe.
-_PRIMITIVE_BUILTINS = {"dict", "list", "tuple", "set", "frozenset",
-                       "bytes", "bytearray", "str", "int", "float",
-                       "bool", "complex", "True", "False", "None"}
+_PRIMITIVE_BUILTINS = {
+    "dict",
+    "list",
+    "tuple",
+    "set",
+    "frozenset",
+    "bytes",
+    "bytearray",
+    "str",
+    "int",
+    "float",
+    "bool",
+    "complex",
+    "True",
+    "False",
+    "None",
+}
 
 
 class RestrictedUnpickler(pickle.Unpickler):

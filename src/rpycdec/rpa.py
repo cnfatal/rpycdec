@@ -1,7 +1,9 @@
 import logging
 import os
 import pickle
+import re
 import zlib
+from collections.abc import Iterable
 from io import BufferedIOBase
 from pathlib import Path
 
@@ -28,7 +30,7 @@ def read_until(data: BufferedIOBase, delimiter: int = 0x00) -> bytes:
         if c[0] == delimiter:
             break
         content += c
-    return content
+    return bytes(content)
 
 
 def start_to_bytes(left: list | None) -> bytes:
@@ -152,8 +154,49 @@ def create_rpa(
         archive.write(b"RPA-3.0 %016x %08x\n" % (index_offset, key))
 
 
-def extract_rpa(r: BufferedIOBase, output_dir: str | None = None):
+def _compile_file_filters(
+    expressions: str | Iterable[str] | None,
+    suffixes: str | Iterable[str] | None,
+) -> tuple[list[re.Pattern[str]], tuple[str, ...]]:
+    expression_values = (expressions,) if isinstance(expressions, str) else expressions
+    suffix_values = (suffixes,) if isinstance(suffixes, str) else suffixes
+    patterns = [re.compile(expression) for expression in expression_values or ()]
+    normalized_suffixes = tuple(suffix.casefold() for suffix in suffix_values or ())
+    if any(not suffix for suffix in normalized_suffixes):
+        raise ValueError("RPA file suffixes must not be empty.")
+    return patterns, normalized_suffixes
+
+
+def _matches_file_filters(
+    filename: str,
+    patterns: list[re.Pattern[str]],
+    suffixes: tuple[str, ...],
+) -> bool:
+    if not patterns and not suffixes:
+        return True
+
+    # RPA paths conventionally use forward slashes. Normalize legacy archives
+    # so expressions behave consistently on every host platform.
+    archive_path = filename.replace("\\", "/")
+    return any(pattern.search(archive_path) for pattern in patterns) or (
+        bool(suffixes) and archive_path.casefold().endswith(suffixes)
+    )
+
+
+def extract_rpa(
+    r: BufferedIOBase,
+    output_dir: str | None = None,
+    expressions: str | Iterable[str] | None = None,
+    suffixes: str | Iterable[str] | None = None,
+):
+    """Extract files from an RPA archive.
+
+    When *expressions* or *suffixes* are provided, a file is extracted when
+    its normalized archive path matches any regular expression or suffix.
+    Regular expressions use :func:`re.search`; suffix matching ignores case.
+    """
     output_dir = output_dir or "."
+    patterns, normalized_suffixes = _compile_file_filters(expressions, suffixes)
     magic = read_until(r, 0x20)
     if magic != b"RPA-3.0":
         raise ValueError("Not a Ren'Py RPA-3.0 archive.")
@@ -175,6 +218,18 @@ def extract_rpa(r: BufferedIOBase, output_dir: str | None = None):
         if isinstance(filename, bytes):
             filename = filename.decode("utf-8", errors="surrogateescape")
 
+        if not _matches_file_filters(filename, patterns, normalized_suffixes):
+            logger.debug("skipping filtered file: %s", filename)
+            continue
+
+        # Path traversal protection. Resolve the destination before reading
+        # the payload so rejected entries do not consume unnecessary memory.
+        try:
+            dest = safe_path(output_dir, filename)
+        except ValueError:
+            logger.warning("Skipping path traversal attempt: %s", filename)
+            continue
+
         data = bytearray()
         for offset, dlen, start in entries:
             r.seek(offset)
@@ -187,13 +242,6 @@ def extract_rpa(r: BufferedIOBase, output_dir: str | None = None):
                         "%s does not start with expected prefix %s", filename, start
                     )
             data += block
-
-        # Path traversal protection
-        try:
-            dest = safe_path(output_dir, filename)
-        except ValueError:
-            logger.warning("Skipping path traversal attempt: %s", filename)
-            continue
 
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         with open(dest, "wb") as f:

@@ -50,6 +50,21 @@ Extract RPA archive:
 rpycdec unrpa archive.rpa
 ```
 
+Extract files whose archive paths match a regular expression:
+
+```sh
+rpycdec unrpa archive.rpa -e '\.rpyc?$'
+```
+
+Extract files with one of several suffixes (case-insensitive):
+
+```sh
+rpycdec unrpa archive.rpa -s .rpy .rpyc
+```
+
+`--expression`/`-e` may be repeated, as may `--suffix`/`-s`. When both are
+used, a file is extracted if it matches any expression or any suffix.
+
 Create RPA archive:
 
 ```sh

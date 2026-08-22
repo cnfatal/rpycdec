@@ -1,9 +1,9 @@
 import io
 import logging
-from os import path
 import pickletools
 import struct
 import zlib
+from os import path
 
 from renpy.ast import Node
 from rpycdec.safe_pickle import SafeUnpickler
@@ -41,7 +41,9 @@ def read_rpyc_data(file: io.BufferedReader, slot):
     return zlib.decompress(data)
 
 
-def load(data: io.BufferedReader, slots: list[int] | None = None, **kwargs) -> list[Node] | None:
+def load(
+    data: io.BufferedReader, slots: list[int] | None = None, **kwargs
+) -> list[Node] | None:
     """Load Ren'Py AST from a .rpyc file.
 
     Tries each slot in order. Slot 1 is the original script,

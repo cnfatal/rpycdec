@@ -1,16 +1,32 @@
 import argparse
 import logging
 import os
+import re
 import sys
 
+from rpycdec.apk import extract_apk
 from rpycdec.decompile import decompile
 from rpycdec.rpa import create_rpa, extract_rpa
-from rpycdec.save import extract_save, restore_save, dump_save_info, generate_new_key
+from rpycdec.save import dump_save_info, extract_save, generate_new_key, restore_save
 from rpycdec.translate import extract_translations
-from rpycdec.apk import extract_apk
-
 
 logger = logging.getLogger(__name__)
+
+
+def regular_expression(value: str) -> str:
+    """Validate a command-line regular expression."""
+    try:
+        re.compile(value)
+    except re.error as exc:
+        raise argparse.ArgumentTypeError(f"invalid regular expression: {exc}") from exc
+    return value
+
+
+def non_empty_suffix(value: str) -> str:
+    """Validate a command-line file suffix."""
+    if not value:
+        raise argparse.ArgumentTypeError("suffix must not be empty")
+    return value
 
 
 def decompile_files(srcs: list[str], **kwargs):
@@ -32,7 +48,12 @@ def extract_rpa_files(srcs: list[str], **kwargs):
     for src in srcs:
         with open(src, "rb") as f:
             output_path = kwargs.get("output") or os.path.dirname(src)
-            extract_rpa(f, output_dir=output_path)
+            extract_rpa(
+                f,
+                output_dir=output_path,
+                expressions=kwargs.get("expressions"),
+                suffixes=kwargs.get("suffixes"),
+            )
 
 
 def create_rpa_archive(srcs: list[str], output: str, **kwargs):
@@ -116,6 +137,30 @@ def main():
         "--output",
         "-o",
         help="output path",
+    )
+    unrpa_parser.add_argument(
+        "--expression",
+        "-e",
+        dest="expressions",
+        action="append",
+        type=regular_expression,
+        metavar="REGEX",
+        help=(
+            "extract archive paths matching this regular expression; may be repeated"
+        ),
+    )
+    unrpa_parser.add_argument(
+        "--suffix",
+        "-s",
+        dest="suffixes",
+        action="extend",
+        nargs="+",
+        type=non_empty_suffix,
+        metavar="SUFFIX",
+        help=(
+            "extract archive paths ending with any of these suffixes "
+            "(case-insensitive); may be repeated"
+        ),
     )
     unrpa_parser.set_defaults(
         func=lambda args: extract_rpa_files(args.file, **vars(args))

@@ -21,11 +21,11 @@ import os
 import pickle
 import pickletools
 import zipfile
-from typing import Any, Tuple
+from typing import Any
 
 from rpycdec.safe_pickle import (
-    SafeUnpickler,
     SAFE_MODULES,
+    SafeUnpickler,
 )
 
 
@@ -375,7 +375,7 @@ def load_save_zip(file_path: str) -> dict:
         return result
 
 
-def parse_save_log(log_data: bytes, verbose: bool = False) -> Tuple[Any, Any]:
+def parse_save_log(log_data: bytes, verbose: bool = False) -> tuple[Any, Any]:
     """
     Parse the pickle log data from a save file.
 
@@ -452,29 +452,29 @@ def extract_save(
     metadata_path = os.path.join(extracted_dir, "metadata.json")
     with open(metadata_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
-    print(f"  Saved: metadata.json")
+    print("  Saved: metadata.json")
 
     # Save roots
     roots_path = os.path.join(extracted_dir, "roots.json")
     with open(roots_path, "w", encoding="utf-8") as f:
         json.dump(_to_json_serializable(roots), f, indent=2, ensure_ascii=False)
-    print(f"  Saved: roots.json")
+    print("  Saved: roots.json")
 
     # Save log
     log_path = os.path.join(extracted_dir, "log.json")
     with open(log_path, "w", encoding="utf-8") as f:
         json.dump(_to_json_serializable(log), f, indent=2, ensure_ascii=False)
-    print(f"  Saved: log.json")
+    print("  Saved: log.json")
 
     # Save screenshot if present
     if save_data["screenshot"]:
         screenshot_path = os.path.join(extracted_dir, "screenshot.png")
         with open(screenshot_path, "wb") as f:
             f.write(save_data["screenshot"])
-        print(f"  Saved: screenshot.png")
+        print("  Saved: screenshot.png")
 
-    print(f"\nExtraction complete!")
-    print(f"Edit roots.json or log.json, then use 'restore' to create a new save file.")
+    print("\nExtraction complete!")
+    print("Edit roots.json or log.json, then use 'restore' to create a new save file.")
 
 
 def restore_save(
@@ -498,7 +498,9 @@ def restore_save(
         key_file: Path to security_keys.txt for re-signing (optional)
     """
     if not output_file:
-        output_file = extracted_dir.rstrip("/").removesuffix(".extracted") + ".restored.save"
+        output_file = (
+            extracted_dir.rstrip("/").removesuffix(".extracted") + ".restored.save"
+        )
 
     print(f"Restoring save file from: {extracted_dir}")
     print(f"Output file: {output_file}")
@@ -507,21 +509,21 @@ def restore_save(
     metadata_path = os.path.join(extracted_dir, "metadata.json")
     with open(metadata_path, "r", encoding="utf-8") as f:
         metadata = json.load(f)
-    print(f"  Loaded: metadata.json")
+    print("  Loaded: metadata.json")
 
     # Load roots
     roots_path = os.path.join(extracted_dir, "roots.json")
     with open(roots_path, "r", encoding="utf-8") as f:
         roots_json = json.load(f)
     roots = _from_json_serializable(roots_json)
-    print(f"  Loaded: roots.json")
+    print("  Loaded: roots.json")
 
     # Load log
     log_path = os.path.join(extracted_dir, "log.json")
     with open(log_path, "r", encoding="utf-8") as f:
         log_json = json.load(f)
     log = _from_json_serializable(log_json)
-    print(f"  Loaded: log.json")
+    print("  Loaded: log.json")
 
     # Load screenshot if present
     screenshot = None
@@ -529,7 +531,7 @@ def restore_save(
     if os.path.exists(screenshot_path):
         with open(screenshot_path, "rb") as f:
             screenshot = f.read()
-        print(f"  Loaded: screenshot.png")
+        print("  Loaded: screenshot.png")
 
     # Serialize the game state
     log_data = serialize_save_log(roots, log)
@@ -538,7 +540,7 @@ def restore_save(
     if key_file:
         print(f"  Re-signing with key: {key_file}")
         signatures = sign_data(log_data, key_file)
-        print(f"  Generated new signature")
+        print("  Generated new signature")
     else:
         # Keep original signatures (will be invalid for modified saves)
         signatures = metadata.get("signatures", "")
@@ -570,15 +572,15 @@ def restore_save(
         os.unlink(output_file)
     os.rename(output_file_tmp, output_file)
 
-    print(f"\nRestore complete!")
+    print("\nRestore complete!")
     print(f"Save file created: {output_file}")
 
     if not key_file:
         print(
-            f"\nNote: No signing key provided. Original signatures preserved but invalid."
+            "\nNote: No signing key provided. Original signatures preserved but invalid."
         )
-        print(f"Use --key to provide security_keys.txt for valid signatures.")
-        print(f"Some games with strict signature checking may reject modified saves.")
+        print("Use --key to provide security_keys.txt for valid signatures.")
+        print("Some games with strict signature checking may reject modified saves.")
 
 
 def sign_data(log_data: bytes, key_file: str) -> str:
@@ -610,7 +612,7 @@ def sign_data(log_data: bytes, key_file: str) -> str:
             return f"{kind} {key_b64} {sig_b64}\n"
         return f"{kind} {key_b64}\n"
 
-    def decode_line(line: str) -> Tuple[str, bytes, bytes]:
+    def decode_line(line: str) -> tuple[str, bytes, bytes]:
         """Decode a signature line from Ren'Py format."""
         parts = line.strip().split()
         if len(parts) < 2:
@@ -682,14 +684,14 @@ def dump_save_info(file_path: str):
     save_data = load_save_zip(file_path)
 
     print(f"Save file: {file_path}")
-    print(f"\n=== Metadata ===")
+    print("\n=== Metadata ===")
     print(f"Extra info: {save_data['extra_info']}")
     print(f"Ren'Py version: {save_data['renpy_version']}")
-    print(f"\n=== JSON Metadata ===")
+    print("\n=== JSON Metadata ===")
     for key, value in save_data["json"].items():
         print(f"  {key}: {value}")
 
-    print(f"\n=== Contents ===")
+    print("\n=== Contents ===")
     print(f"Screenshot: {'Yes' if save_data['screenshot'] else 'No'}")
     print(f"Log data size: {len(save_data['log'])} bytes")
     print(f"Has signatures: {'Yes' if save_data['signatures'] else 'No'}")

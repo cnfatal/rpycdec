@@ -1,8 +1,21 @@
+PYTHON ?= python
+RUFF ?= ruff
+
+.PHONY: wheels release test lint format
+
 wheels:
-	python -m build --wheel
+	$(PYTHON) -m build --wheel
 
 release:
 	twine upload dist/*
 
 test:
-	python -m unittest discover -s tests
+	$(PYTHON) -m unittest discover -s tests
+
+lint:
+	$(RUFF) check .
+	$(RUFF) format --check .
+
+format:
+	$(RUFF) check . --fix
+	$(RUFF) format .
