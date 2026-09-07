@@ -173,20 +173,27 @@ def extract_apk(
                         PrependedStream(magic, private_stream)
                     )
 
-                    with tarfile.open(fileobj=wrapped_stream, mode="r:gz") as tar:
-                        # Path traversal protection
-                        for member in tar.getmembers():
+                    with tarfile.open(fileobj=wrapped_stream, mode="r|gz") as tar:
+                        private_extracted_count = 0
+                        for member in tar:
                             try:
                                 safe_path(str(private_output), member.name)
-                            except ValueError:
+                                tar.extract(
+                                    member,
+                                    path=private_output,
+                                    filter="data",
+                                )
+                            except (ValueError, tarfile.FilterError) as exc:
                                 logger.warning(
-                                    "Skipping path traversal attempt in tar: %s",
+                                    "Skipping unsafe tar member %s: %s",
                                     member.name,
+                                    exc,
                                 )
                                 continue
-                            tar.extract(member, path=private_output)
+                            private_extracted_count += 1
                         logger.info(
-                            f"Extracted {len(tar.getmembers())} files from private.mp3"
+                            "Extracted %d files from private.mp3",
+                            private_extracted_count,
                         )
 
     logger.info(f"Successfully extracted game to: {output_path}")
