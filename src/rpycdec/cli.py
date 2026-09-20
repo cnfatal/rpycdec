@@ -1,10 +1,12 @@
 import argparse
 import logging
 import os
+import pprint
 import re
 import sys
 
 from rpycdec.apk import extract_apk
+from rpycdec.astdump import diff, dump_file
 from rpycdec.decompile import decompile
 from rpycdec.rpa import create_rpa, extract_rpa
 from rpycdec.save import dump_save_info, extract_save, generate_new_key, restore_save
@@ -65,6 +67,19 @@ def create_rpa_archive(srcs: list[str], output: str, **kwargs):
         srcs,
         base_dir=kwargs.get("base"),
     )
+
+
+def dump_ast(srcs: list[str], **kwargs):
+    """
+    print the canonical structure of rpyc files, or the diff between them.
+    """
+    other = kwargs.get("other")
+    left = dump_file(srcs[0])
+    if other is None:
+        pprint.pprint(left, width=110)
+        return
+    result = diff(left, dump_file(other), fromfile=srcs[0], tofile=other)
+    print(result or f"{srcs[0]} and {other} carry the same structure")
 
 
 def run_extract_translations(
@@ -130,6 +145,13 @@ def main():
     decompile_parser.set_defaults(
         func=lambda args: decompile_files(args.src, **vars(args))
     )
+
+    dump_parser = subparsers.add_parser(
+        "dump", help="print rpyc structure, or diff it against another one"
+    )
+    dump_parser.add_argument("src", nargs=1, help="rpyc file")
+    dump_parser.add_argument("other", nargs="?", help="rpyc file to compare against")
+    dump_parser.set_defaults(func=lambda args: dump_ast(args.src, **vars(args)))
 
     unrpa_parser = subparsers.add_parser("unrpa", help="extract rpa archive")
     unrpa_parser.add_argument("file", nargs=1, help="rpa archive")
@@ -309,7 +331,7 @@ def main():
         return
 
     # Show security warning for commands that process pickle data
-    if args.command in ("decompile", "save", "unrpa") and not os.environ.get(
+    if args.command in ("decompile", "dump", "save", "unrpa") and not os.environ.get(
         "RPYCDEC_NO_WARNING"
     ):
         print(SECURITY_WARNING, file=sys.stderr)
