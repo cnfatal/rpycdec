@@ -1,0 +1,46 @@
+{
+  "sdks/renpy-7.6.3-sdk/tutorial/game/indepth_minigame.rpyc": {
+    "kind": "ast-mismatch",
+    "reason": "say-identifier: renpy generates these while translating"
+  },
+  "sdks/renpy-7.6.3-sdk/tutorial/game/indepth_style.rpyc": {
+    "kind": "ast-mismatch",
+    "reason": "say-identifier: renpy generates these while translating"
+  },
+  "sdks/renpy-7.6.3-sdk/tutorial/game/screens.rpyc": {
+    "kind": "ast-mismatch",
+    "reason": "init-offset: `init offset` shifts priorities at parse time"
+  },
+  "sdks/renpy-7.6.3-sdk/tutorial/game/tutorial_atl.rpyc": {
+    "kind": "ast-mismatch",
+    "reason": "say-identifier: renpy generates these while translating"
+  },
+  "sdks/renpy-7.6.3-sdk/tutorial/game/tutorial_screen_displayables.rpyc": {
+    "kind": "ast-mismatch",
+    "reason": "say-identifier: renpy generates these while translating"
+  },
+  "sdks/renpy-7.6.3-sdk/tutorial/game/tutorial_screens.rpyc": {
+    "kind": "ast-mismatch",
+    "reason": "say-identifier: renpy generates these while translating"
+  },
+  "sdks/renpy-8.2.3-sdk/tutorial/game/screens.rpyc": {
+    "kind": "ast-mismatch",
+    "reason": "init-offset: `init offset` shifts priorities at parse time"
+  },
+  "sdks/renpy-8.4.1-sdk/tutorial/game/screens.rpyc": {
+    "kind": "ast-mismatch",
+    "reason": "init-offset: `init offset` shifts priorities at parse time"
+  },
+  "sdks/renpy-8.4.1-sdk/tutorial/game/tutorial_screens.rpyc": {
+    "kind": "ast-mismatch",
+    "reason": "user-statement-source: the text renpy recorded"
+  },
+  "sdks/renpy-8.5.3-sdk/tutorial/game/screens.rpyc": {
+    "kind": "ast-mismatch",
+    "reason": "init-offset: `init offset` shifts priorities at parse time"
+  },
+  "sdks/renpy-8.5.3-sdk/tutorial/game/tutorial_screens.rpyc": {
+    "kind": "ast-mismatch",
+    "reason": "user-statement-source: the text renpy recorded"
+  }
+}

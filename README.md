@@ -1,16 +1,23 @@
 # rpycdec
 
-A tool for decompiling Ren'py compiled script files (.rpyc and .rpymc).
+A tool for decompiling Ren'py compiled script files (.rpyc and .rpymc), for
+Ren'Py 7 and 8.
 
 ## Features
 
-- Decompile `.rpyc` and `.rpymc` files to readable Ren'Py script code
-- Extract RPA archives
-- Create RPA archives from existing files or directories
-- Extract and edit Ren'Py save files (`.save` → JSON → `.save`)
-- Extract Ren'Py games from Android APK files
-- Extract translations from compiled scripts to `tl/{language}/` directories
-- Support for multiple Ren'Py versions (7.x, 8.x)
+| What it does                              | Command                     | Notes                                         |
+| ----------------------------------------- | --------------------------- | --------------------------------------------- |
+| Decompile a script, or a whole game       | `rpycdec decompile`         | Ren'Py 7.x and 8.x                            |
+| Inspect a compiled script, or compare two | `rpycdec dump`              | what the `.rpyc` carries, not just the source |
+| Extract an RPA archive, all or part of it | `rpycdec unrpa`             | filter by path expression or suffix           |
+| Build an RPA archive                      | `rpycdec rpa`               | files or whole directories                    |
+| Pull the game out of an Android APK       | `rpycdec extract-game`      |                                               |
+| Write a game's translations out           | `rpycdec extract-translate` | to `tl/<language>/`                           |
+| Take a save file apart and put it back    | `rpycdec save`              | `.save` to JSON and back, re-signing included |
+
+The decompiled source is checked by compiling it again and comparing the two
+structures, against fixtures and the scripts the Ren'Py SDKs ship: see
+[Testing](#testing).
 
 ## Installation
 
@@ -28,59 +35,43 @@ cd rpycdec
 pip install .
 ```
 
-## Usage
+## Quick start
 
-### Command Line Interface
-
-Decompile a single file:
+`<required>`, `[optional]`, `...` repeats, `-v` for verbose output.
 
 ```sh
-rpycdec decompile script.rpyc
-```
+# decompile a file, or every .rpyc / .rpymc under a directory
+# -o writes somewhere else, -d also prints the pickle disassembly
+rpycdec decompile <path>... [-o <dir>] [-d]
 
-Decompile all files in a directory:
+# print the structure a compiled script carries, or diff it against another
+# file names, line numbers and the like are left out: no decompiler can keep
+rpycdec dump <path> [<other>]
 
-```sh
-rpycdec decompile /path/to/game/
-```
+# extract an rpa archive, or just the files matching a path
+# -e takes a regular expression, -s a suffix; both may be repeated
+rpycdec unrpa <archive.rpa> [-o <dir>] [-e <regex>]... [-s <suffix>]...
 
-Extract RPA archive:
+# build an rpa archive, naming the files inside relative to --base
+rpycdec rpa <path>... -o <archive.rpa> [--base <dir>]
 
-```sh
-rpycdec unrpa archive.rpa
-```
+# pull the game out of an Android APK
+rpycdec extract-game <game.apk> [-o <dir>]
 
-Extract files whose archive paths match a regular expression:
+# write a game's translations to tl/<language>/
+rpycdec extract-translate <game-dir>... -l <language> [-o <dir>]
+rpycdec extract-translate <game-dir> -l Chinese --no-strings --empty
 
-```sh
-rpycdec unrpa archive.rpa -e '\.rpyc?$'
-```
+# take a save file apart into JSON, edit it, put it back together
+rpycdec save extract <save> [<dir>] [-d] [-V]
+rpycdec save restore <dir> [<save>] [-k <security_keys.txt>]
+rpycdec save info <save>
+rpycdec save genkey [<security_keys.txt>]
 
-Extract files with one of several suffixes (case-insensitive):
-
-```sh
+# for example
+rpycdec decompile /path/to/game/ -o out/
+rpycdec dump script.rpyc script.roundtrip.rpyc
 rpycdec unrpa archive.rpa -s .rpy .rpyc
-```
-
-`--expression`/`-e` may be repeated, as may `--suffix`/`-s`. When both are
-used, a file is extracted if it matches any expression or any suffix.
-
-Create RPA archive:
-
-```sh
-rpycdec rpa /path/to/game/files -o archive.rpa
-```
-
-Extract Ren'Py game from Android APK:
-
-```sh
-rpycdec extract-game game.apk
-```
-
-Extract translations:
-
-```sh
-rpycdec extract-translate /path/to/game/ -l Chinese
 ```
 
 ## Security Warning
@@ -97,9 +88,48 @@ See also: [Python pickle security warning](https://docs.python.org/3/library/pic
 
   A: This means our fake `renpy`/`store` packages don't cover the class your file needs. Please [open an issue](https://github.com/cnfatal/rpycdec/issues) with the Ren'Py version and the file that failed.
 
+- **Q: A statement came out wrong, or as a comment like `# <unrecognized: Foo>`**
+
+  A: Attach the structure of the file to the issue: `rpycdec dump common/00style.rpyc`.
+  It prints every node with the attributes it carries, including what the
+  decompiled script has no way to show, and an `<unrecognized: ...>` names the
+  class our fake `renpy` package is missing.
+
+- **Q: The decompiled script looks right, but compiling it again changes something**
+
+  A: `rpycdec dump original.rpyc decompiled.rpyc` prints what differs between
+  the two, which is how the tests in this repository check a round trip. Paste
+  that, together with the file and the Ren'Py version, into the issue.
+
 ## Contributing
 
 Contributions are welcome! Please [open an issue](https://github.com/cnfatal/rpycdec/issues) before submitting major changes so we can discuss the approach.
+
+### Testing
+
+`make test` runs the unit tests and the end-to-end fixtures: each fixture in
+`tests/fixtures/` is compiled with every Ren'Py SDK found under `sdks/`,
+decompiled, compiled again, and both ASTs are compared. Fixtures declare the
+version range they are written for with `# min-renpy:` / `# max-renpy:`
+headers, and combinations outside that range are skipped.
+
+`make test-corpus` does the same for every game script the SDKs ship (~300
+files, it takes a few minutes). Files that do not survive a round trip yet are
+listed in `tests/corpus_baseline.json`, each with the kind of failure and what
+differs first; a listed file that starts passing fails the test, so the list
+stays honest. Regenerate it with
+`python3 -m tests.test_corpus --write-baseline`.
+
+The entries left there are the ones no decompiler can fix, because the value
+Ren'Py stored was made at compilation time rather than written in the source:
+
+- `say-identifier` — Ren'Py hands out identifiers while generating
+  translations; the script itself has no `id` clause to write back.
+- `init-offset` — `init offset` is not in the AST at all, it is folded into the
+  priorities of the statements around it.
+
+Both need the SDKs, which are not in the repository; tests that need them skip
+when `sdks/` is empty. Set `RPYCDEC_SDKS` to point at SDK roots elsewhere.
 
 ## Community & Support
 
