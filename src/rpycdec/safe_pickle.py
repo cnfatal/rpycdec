@@ -12,9 +12,13 @@ See: https://docs.python.org/3/library/pickle.html#module-pickle
 import io
 import logging
 import pickle
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# objects currently being formatted by DummyClass.__repr__, per thread
+_repr_active = threading.local()
 
 
 # ---------------------------------------------------------------------------
@@ -129,17 +133,45 @@ class DummyClass(object):
         name = getattr(cls, "__name__", "?")
         if self._state is not None:
             return f"<{module}.{name}: state={self._state!r}>"
-        attrs = {
+        # unpickled graphs reference each other (e.g. a test suite's hooks point
+        # back at their parent), so formatting the attributes can loop forever
+        seen = getattr(_repr_active, "ids", None)
+        if seen is None:
+            seen = _repr_active.ids = set()
+        if id(self) in seen:
+            return f"<{module}.{name}: ...>"
+        seen.add(id(self))
+        try:
+            attrs = {
+                k: v
+                for k, v in self.__dict__.items()
+                if not k.startswith("_new_") and k != "_state"
+            }
+            return f"<{module}.{name}: {attrs}>"
+        finally:
+            seen.discard(id(self))
+
+    def get_code(self, **kwargs) -> str:
+        """Renders the node as a comment, keeping everything it carries.
+
+        The result cannot be compiled: an unknown node has no source form. In
+        an expression position (`inline`) it must stay on one line.
+        """
+        name = getattr(type(self), "__name__", "<?>")
+        logger.warning("Unrecognized node %s in decompile output", name)
+        state = {
             k: v
             for k, v in self.__dict__.items()
             if not k.startswith("_new_") and k != "_state"
         }
-        return f"<{module}.{name}: {attrs}>"
-
-    def get_code(self, **kwargs) -> str:
-        name = getattr(type(self), "__name__", "<?>")
-        logger.warning("Unrecognized node %s in decompile output", name)
-        return f"# <unrecognized: {name}>"
+        if kwargs.get("inline"):
+            return f"# <unrecognized: {name} {self._state if self._state is not None else state!r}>"
+        lines = [f"# <unrecognized: {name}>"]
+        if self._state is not None:
+            lines.append(f"#   state: {self._state!r}")
+        for key in sorted(state):
+            lines.append(f"#   {key}: {state[key]!r}")
+        return "\n".join(lines[:24])
 
 
 def make_dummy_class(module: str, name: str) -> type:

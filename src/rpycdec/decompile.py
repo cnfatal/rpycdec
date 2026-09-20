@@ -3,10 +3,30 @@
 import logging
 import os
 
-from renpy import util
+from renpy import ast, util
 from rpycdec import stmts, utils
 
 logger = logging.getLogger(__name__)
+
+
+def trim_implicit_return(stmts_: list[ast.Node]) -> list[ast.Node]:
+    """
+    Drops the empty return Ren'Py appends to every parsed script file.
+
+    .. code-block:: python
+
+        # renpy/parser.py parse()
+        rv.append(ast.Return((rv[-1].filename, linenumber), None))
+
+    It always ends the top level statement list. Writing it out would make the
+    next compilation append another one, so every round trip would gain a
+    ``return``. ``util.get_code`` must not do this: inside a block a trailing
+    empty return is written by the author.
+    """
+    if stmts_ and isinstance(stmts_[-1], ast.Return):
+        if not util.attr(stmts_[-1], "expression"):
+            return stmts_[:-1]
+    return stmts_
 
 
 def decompile_file(input_file, output_path=None, **kwargs):
@@ -22,7 +42,7 @@ def decompile_file(input_file, output_path=None, **kwargs):
         os.makedirs(output_dir, exist_ok=True)
 
     try:
-        stmt = stmts.load_file(input_file, **kwargs)
+        stmt = trim_implicit_return(stmts.load_file(input_file, **kwargs))
         code = util.get_code(stmt)
     except Exception as e:
         logger.error("decode file %s failed: %s", input_file, e)
