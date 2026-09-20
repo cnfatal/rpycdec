@@ -89,7 +89,9 @@ rpycdec unrpa archive.rpa -s .rpy .rpyc
 
 This tool processes `.rpyc`, `.rpymc`, `.rpa`, and `.save` files which use Python's `pickle` format internally. rpycdec uses restricted unpicklers with whitelist-based class loading to mitigate arbitrary code execution risks, but **no pickle safeguard is perfect**. Only process files from sources you trust.
 
-Set `RPYCDEC_NO_WARNING=1` to suppress the CLI security warning.
+Set `RPYCDEC_NO_WARNING=1` to suppress the CLI security warning. What the
+restricted unpicklers allow, and how to report a vulnerability privately, is in
+[SECURITY.md](SECURITY.md).
 
 See also: [Python pickle security warning](https://docs.python.org/3/library/pickle.html#module-pickle)
 
