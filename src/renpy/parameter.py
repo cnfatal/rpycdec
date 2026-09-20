@@ -1,4 +1,4 @@
-from .. import util
+from . import util
 
 
 class Signature:
@@ -11,13 +11,12 @@ class Signature:
         else:
             for value in parameters:
                 rv.append(str(value))
-        if not rv:
-            return ""
+        # an empty signature is written as `()` too, dropping it would make
+        # `screen foo():` come back without a parameter list at all
         return f"({', '.join(rv)})"
 
 
 class Parameter:
-
     (
         POSITIONAL_ONLY,
         POSITIONAL_OR_KEYWORD,
@@ -48,7 +47,6 @@ class Parameter:
 
 
 class ArgumentInfo:
-
     def get_code(self, **kwargs) -> str:
         rv = []
         for i, (keyword, expression) in enumerate(self.arguments):

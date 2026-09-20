@@ -314,7 +314,7 @@ def write_dialogue_translations(
                 f.write(f"translate {language} {item.identifier}:\n\n")
 
                 # Write original code as comment
-                f.write(f"    # {item.code}\n")
+                f.write(f"    # {utils.strip_verbatim(item.code)}\n")
 
                 # Write translation content
                 if empty_translation:

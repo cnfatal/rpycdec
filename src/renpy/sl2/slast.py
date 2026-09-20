@@ -77,9 +77,9 @@ class SLDisplayable(SLBlock):
 
     def get_name(self) -> str:
         # higher version use style instead of name
-        name = getattr(self, "name", None)
-        displayable = getattr(self, "displayable", None)
-        style = getattr(self, "style", None)
+        name = util.attr(self, "name")
+        displayable = util.attr(self, "displayable")
+        style = util.attr(self, "style")
         start = ""
         if name:
             start = name
@@ -246,14 +246,19 @@ class SLUse(SLNode):
         start = "use"
         target = util.attr(self, "target")
         if target:
-            if isinstance(target, ast.PyExpr):
-                start += f" expression {util.get_code(target, **kwargs)} pass "
-            elif isinstance(target, astsupport.PyExpr):
+            if isinstance(target, (ast.PyExpr, astsupport.PyExpr)):
                 start += f" expression {util.get_code(target, **kwargs)} pass "
             else:
                 start += f" {target}"
         if self.args:
             start += f"{util.get_code(self.args, **kwargs)}"
+        # `id EXPR` names the used screen, `as NAME` keeps it in a variable
+        id_expr = util.attr(self, "id")
+        if id_expr is not None:
+            start += f" id {id_expr}"
+        variable = util.attr(self, "variable")
+        if variable:
+            start += f" as {variable}"
         if self.block:
             return util.label_code(start, self.block, **kwargs)
         if self.ast:

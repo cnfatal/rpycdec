@@ -8,11 +8,17 @@ from . import translation, util
 
 
 def parse_store_name(name: str) -> str:
-    if not name:
+    """`store.editor` becomes `editor`: the store a statement targets.
+
+    `str.lstrip` takes a set of characters, not a prefix, so it has to be a
+    slice: `lstrip("store.")` turns `store.editor` into `ditor`.
+    """
+    if not name or name == "store":
         return ""
-    if name == "store":
-        return ""
-    return name.lstrip("store.")
+    prefix = "store."
+    if name.startswith(prefix):
+        return name[len(prefix) :]
+    return name
 
 
 def align_imspec(imspec):
@@ -185,13 +191,13 @@ class ArgumentInfo(object):
                 args.append(f"{key}={val}")
             else:
                 args.append(val)
-        if getattr(self, "starred_indexes", None):
+        if util.attr(self, "starred_indexes"):
             raise NotImplementedError
-        if getattr(self, "doublestarred_indexes", None):
+        if util.attr(self, "doublestarred_indexes"):
             raise NotImplementedError
-        if getattr(self, "extrakw", None):
+        if util.attr(self, "extrakw"):
             raise NotImplementedError
-        extrapos = getattr(self, "extrapos", None)
+        extrapos = util.attr(self, "extrapos")
         if extrapos:
             args.append(f"*{extrapos}")
         return "(" + ", ".join(args) + ")"
@@ -234,7 +240,7 @@ class PyCode(object):
             self.state = state
 
     def get_code(self, **kwargs) -> str:
-        source = getattr(self, "source", None)
+        source = util.attr(self, "source")
         if source:
             return source
         return util.get_code(self.state[1])
@@ -276,14 +282,16 @@ class Say(Node):
             rv.append("@")
             rv.extend(temporary_attributes)
 
-        what = util.attr(self, "what")
+        what = util.attr(self, "what", required=True)
         if dialogue_filter is not None:
             what = dialogue_filter(what)
 
         rv.append(translation.encode_say_string(what))
 
+        # `interact` defaults to True and compilers leave it out of the pickle
+        # when it holds, so absence means "interacts", not "nointeract"
         interact = util.attr(self, "interact")
-        if not interact:
+        if interact is not None and not interact:
             rv.append("nointeract")
 
         identifier = util.attr(self, "identifier")
@@ -323,32 +331,32 @@ class Init(Node):
     priority: int
 
     def get_code(self, **kwargs) -> str:
-        if len(self.block) == 1:
-            next = self.block[0]
-            if isinstance(next, Python) or isinstance(next, EarlyPython):
-                return f"init {util.get_code(next, **kwargs)}"
-            if self.priority == -500 and isinstance(next, Screen):
-                return util.get_code(self.block, **kwargs)
-            if self.priority == 500 and isinstance(next, Image):
-                return util.get_code(next, **kwargs)
-            if (
-                isinstance(next, Define)
-                or isinstance(next, Default)
-                or isinstance(next, Transform)
-            ):
-                return util.get_code(next, **kwargs)
+        block = self.block
+
+        # renpy wraps some top level statements in an init of their own, with a
+        # priority that is a property of the statement, so those keep their
+        # bare form when the priority matches. Others, `python:` for one, are
+        # only in an init because the source said `init`, and need it back.
+        if len(block) == 1 and self.priority == IMPLICIT_INIT_PRIORITY.get(type(block[0])):
+            return util.get_code(block[0], **kwargs)
 
         if self.priority == 0 and all(
-            isinstance(item, TranslateString) for item in self.block
+            isinstance(item, TranslateString) for item in block
         ):
-            return util.get_code(self.block, **kwargs)
+            return util.get_code(block, **kwargs)
 
         start = "init"
         if self.priority:
             start += f" {self.priority}"
-        if len(self.block) == 0:
+
+        if len(block) == 0:
             raise NotImplementedError
-        inner_code = util.get_code(self.block, **kwargs)
+
+        if len(block) == 1 and isinstance(block[0], (Python, EarlyPython)):
+            # `init 5 python:` keeps the statement on the same line
+            return f"{start} {util.get_code(block[0], **kwargs)}"
+
+        inner_code = util.get_code(block, **kwargs)
         if inner_code.count("\n") == 0:
             return f"{start} {inner_code}"
         rv = [start + ":"]
@@ -408,7 +416,8 @@ class Label(Node):
             start += " hide"
         block = util.attr(self, "block")
         if not block:
-            block = Pass()
+            # a label can be a bare jump target: `label foo:` with no body
+            return start + ":"
         return util.label_code(start, block, **kwargs)
 
     def get_children(self, f):
@@ -442,8 +451,15 @@ class Python(Node):
         $ flag = True
     """
 
+    def get_source(self, **kwargs) -> str:
+        """The python source, in whichever attribute this version stored it."""
+        source = util.attr(self, "source")  # renpy.test.testast.Python
+        if source is None:
+            source = util.get_code(util.attr(self, "code"), **kwargs)
+        return source or ""
+
     def get_code(self, **kwargs) -> str:
-        inner_code = util.get_code(self.code, **kwargs)
+        inner_code = self.get_source(**kwargs)
         store = parse_store_name(util.attr(self, "store"))
         hide = util.attr(self, "hide")
 
@@ -458,7 +474,7 @@ class Python(Node):
         if store:
             start += f" in {store}"
         rv = [start + ":"]
-        rv.append(util.indent(f"{inner_code}"))
+        rv.append(util.indent_python(inner_code))
         return "\n".join(rv)
 
 
@@ -497,7 +513,8 @@ class EarlyPython(Node):
             start += " hide"
         if storename:
             start += f" in {storename}"
-        return util.label_code(start, util.attr(self, "code"), **kwargs)
+        body = util.get_code(util.attr(self, "code"), **kwargs) or "pass"
+        return f"{start}:\n{util.indent_python(body)}"
 
 
 class Image(Node):
@@ -940,7 +957,9 @@ class If(Node):
             if index == 0:
                 rv.append(f"if {cond}:\n{block}")
                 continue
-            if index == len(entries) - 1:
+            if index == len(entries) - 1 and cond == "True":
+                # an else clause is stored as a trailing `True`, but an if
+                # chain without one ends in a plain elif
                 rv.append(f"else:\n{block}")
                 continue
             rv.append(f"elif {cond}:\n{block}")
@@ -977,10 +996,9 @@ class UserStatement(Node):
         return self
 
     def get_code(self, **kwargs) -> str:
-        start = self.line
-        rv = [start]
+        rv = [self.line or ""]
         if self.block:
-            rv.append(util.indent(util.get_block_code(self.block, **kwargs)))
+            rv.append(util.get_block_code(self.block, **kwargs))
         return "\n".join(rv)
 
     def get_translation_strings(self) -> list[tuple[int, str]]:
@@ -1027,13 +1045,14 @@ class Define(Node):
 
     Grammar::
 
-        define [PRIORITY] [STORE.]NAME (= | |= | += ) EXPRESSION
+        define [PRIORITY] [STORE.]NAME[INDEX] (= | |= | += ) EXPRESSION
 
     Examples::
 
         define e = Character("Eileen")
         define -2 gui.accent_color = '#ffdd1e'
         define config.tag_layer |= { "eileen": "master" }
+        define build.mac_info_plist["CFBundleIdentifier"] = "org.renpy.sdk"
     """
 
     def get_code(self, **kwargs) -> str:
@@ -1044,9 +1063,11 @@ class Define(Node):
             start += f" {priority}"
         store_name = parse_store_name(util.attr(self, "store"))
         varname = util.attr(self, "varname")
-        operator = "="
-        if getattr(self, "operator", None):
-            operator = self.operator
+        index = util.attr(self, "index")
+        if index is not None:
+            # renpy 8.5: an index picks an entry of the variable being defined
+            varname = f"{varname}[{util.get_code(index, **kwargs)}]"
+        operator = util.attr(self, "operator") or "="
         if store_name:
             varname = f"{store_name}.{varname}"
         return f"{start} {varname} {operator} {util.get_code(self.code,**kwargs)}"
@@ -1166,14 +1187,24 @@ class TranslateString(Node):
     newloc: tuple[str, int]
 
     def get_code(self, **kwargs) -> str:
-        language = util.attr(self, "language")
-        if not language:
-            language = "None"
+        """Just the `old`/`new` pair: the header is written once per block."""
         return (
-            f"translate {language} strings:\n"
-            f"{util.indent(f'old {translation.encode_say_string(self.old)}')} \n"
+            f"{util.indent(f'old {translation.encode_say_string(self.old)}')}\n"
             f"{util.indent(f'new {translation.encode_say_string(self.new)}')}"
         )
+
+
+def translate_strings_code(nodes: list[Node], **kwargs) -> str:
+    """One `translate LANGUAGE strings:` block holding the given pairs.
+
+    The parser puts every `old`/`new` pair of a block into the same statement
+    list, so writing the block per pair would split it apart.
+    """
+    language = util.attr(nodes[0], "language") or "None"
+    rv = [f"translate {language} strings:"]
+    for node in nodes:
+        rv.append(util.indent(node.get_code(**kwargs)))
+    return "\n".join(rv)
 
 
 class TranslatePython(Node):
@@ -1199,13 +1230,29 @@ class TranslatePython(Node):
 
 
 class TranslateBlock(Node):
+    """
+    `translate LANGUAGE style NAME:` -- a style statement for one language.
+
+    Grammar::
+
+        translate LANGUAGE style NAME:
+            STYLE_PROPERTIES
+    """
+
     translation_relevant = True
 
     block: list[Node]
     language: str
 
     def get_code(self, **kwargs) -> str:
-        return util.get_code(self.block, **kwargs)
+        language = util.attr(self, "language")
+        style = util.attr(self, "block") or []
+        style = style[0] if style else None
+        if isinstance(style, Style):
+            header = f"translate {language} style {style.style_name}{style._clauses()}"
+            return f"{header}:\n{util.indent(style.get_code_body())}"
+        # not something the parser produces today, keep the statements at least
+        return "\n".join(util.get_code(item, **kwargs) for item in util.attr(self, "block") or [])
 
     def get_children(self, f):
         f(self)
@@ -1233,10 +1280,23 @@ class TranslateSay(Node):
 
 
 class TranslateEarlyBlock(TranslateBlock):
+    """
+    `translate LANGUAGE python:` -- python run for one language, at init time.
+
+    Grammar::
+
+        translate LANGUAGE python:
+            PYTHON_BLOCK
+    """
+
     def get_code(self, **kwargs) -> str:
-        for item in self.block:
-            kwargs.update({"language": self.language})
-            return util.get_code(item, **kwargs)
+        language = util.attr(self, "language")
+        body = [
+            item.get_source(**kwargs)
+            for item in util.attr(self, "block") or []
+            if isinstance(item, Python)
+        ]
+        return f"translate {language} python:\n{util.indent(chr(10).join(body) or 'pass')}"
 
 
 class Style(Node):
@@ -1262,27 +1322,43 @@ class Style(Node):
         take c
     """
 
-    def get_code(self, **kwargs) -> str:
-        start = f"style {self.style_name}"
-        properties = self.properties.copy()
+    def _clauses(self) -> str:
+        """The `is`/`clear`/`take`/`del`/`variant` parts of the header.
 
+        https://www.renpy.org/doc/html/style.html#defining-styles-style-statement
+        """
+        rv = ""
         parent = util.attr(self, "parent")
         if parent:
-            start += f" is {parent}"
-        clear = util.attr(self, "clear")
-        if clear:
-            properties["clear"] = None
+            rv += f" is {parent}"
+        if util.attr(self, "clear"):
+            rv += " clear"
         take = util.attr(self, "take")
         if take:
-            properties["take"] = take
+            rv += f" take {take}"
         delattr = util.attr(self, "delattr")
         if delattr:
             for d in delattr:
-                properties["delattr"] = d
-
+                rv += f" del {d}"
         variant = util.attr(self, "variant")
         if variant:
-            properties["variant"] = variant
+            rv += f" variant {variant}"
+        return rv
+
+    def get_code_body(self) -> str:
+        """The properties, as the body of a `style NAME:` statement.
+
+        `translate LANG style NAME:` holds a style without its own header, so
+        it needs the body on its own.
+        """
+        properties = util.attr(self, "properties")
+        if not properties:
+            return "pass"
+        return util.get_code_properties(properties.copy(), newline=True)
+
+    def get_code(self, **kwargs) -> str:
+        start = f"style {self.style_name}" + self._clauses()
+        properties = self.properties.copy()
 
         if not properties:
             return start
@@ -1295,38 +1371,36 @@ class Style(Node):
 
 class Testcase(Node):
     """
-    Ren'Py 8.x+: Represents a testcase statement for automated testing.
+    Represents a testcase statement for automated testing.
 
-    Grammar::
+    Two incompatible frameworks shipped under this name, told apart by whether
+    the name sits on the statement (``label``) or on the test node:
 
-        testcase LABEL [OPTIONS] :
-            BLOCK
+    Ren'Py <= 8.4.1::
 
-    Example::
+        testcase NAME:
+            STATEMENTS      # renpy.test.testast.Block
 
-        testcase "test_menu" label start:
-            "Hello"
+    Ren'Py >= 8.5::
+
+        testcase NAME:      # or: testsuite NAME:
+            STATEMENTS      # renpy.test.testast.TestCase / TestSuite
+
+    https://www.renpy.org/doc/html/testcases.html
     """
 
-    label: str = ""
-    test: str = ""
-    block: list[Node] = []
-    description: str | None = None
-    options: str | None = None
+    label: str | None = None
+    test: Any = None
 
     def get_code(self, **kwargs) -> str:
-        start = "testcase"
         label = util.attr(self, "label")
-        if label:
-            start += f" {translation.encode_say_string(label)}"
         test = util.attr(self, "test")
-        if test:
-            start += f" label {test}"
-        options = util.attr(self, "options")
-        if options:
-            start += f" {options}"
-        block = util.attr(self, "block")
-        return util.label_code(start, block, **kwargs)
+        if label is not None:
+            # up to 8.4.1 the name is a bare word, quoting it would not parse
+            body = util.get_code(test, **kwargs) or "pass"
+            return f"testcase {label}:\n{util.indent(body)}"
+        # from 8.5 the test node carries its own header, testsuite included
+        return util.get_code(test, **kwargs)
 
 
 class Camera(Node):
@@ -1348,3 +1422,17 @@ class Camera(Node):
         if self.at_list:
             start += f" at {util.get_code(self.at_list,**kwargs)}"
         return util.label_code(start, util.attr(self, "atl"), **kwargs)
+
+
+# The priority renpy gives a top level statement when it wraps it in an init of
+# its own, measured against the SDK: `image x = ..` becomes Init(500) and
+# `screen x():` becomes Init(-500), while the plain init statements start at 0.
+# A statement that is not listed is written as an explicit `init N` instead.
+IMPLICIT_INIT_PRIORITY = {
+    Image: 500,
+    Screen: -500,
+    Define: 0,
+    Default: 0,
+    Transform: 0,
+    Style: 0,
+}

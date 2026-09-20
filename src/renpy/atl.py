@@ -25,17 +25,14 @@ class RawBlock(RawStatement):
 
     atl_block_stmt ::=  "block" ":"
                          atl_block
+
+    A `block:` statement parses into the very same node as the body of a
+    transform, so the caller decides: `block_header` is set when a block is a
+    statement of another block and has to be written out.
     """
 
     def get_code(self, **kwargs) -> str:
-        if (
-            not self.animation
-            and len(self.statements) == 1
-            and isinstance(self.statements[0], RawBlock)
-        ):
-            return util.get_code(self.statements[0], **kwargs)
-
-        rv = []
+        body = []
         if self.animation:
             """
             https://www.renpy.org/doc/html/transforms.html#animation-statement
@@ -49,19 +46,39 @@ class RawBlock(RawStatement):
                 linear 5.0 xalign 1.0
                 repeat
             """
-            rv.append("animation")
+            body.append("animation")
 
-        statements = self.statements
-        if statements:
-            for statement in statements:
-                if statement is None:
-                    rv.append("pass")
-                else:
-                    rv.append(util.get_code(statement, **kwargs))
-        else:
-            rv.append("pass")
+        # the header is about this block only, the statements inside it must not
+        # inherit the flag
+        inner = {key: value for key, value in kwargs.items() if key != "block_header"}
 
-        return "\n".join(rv)
+        previous = None
+        for statement in self.statements or []:
+            if statement is None:
+                body.append("pass")
+                previous = statement
+                continue
+
+            # renpy merges consecutive nodes of these kinds into one, and a
+            # `pass` is what keeps two groups apart. Without it the choices,
+            # branches or children of two nodes would come back as one.
+            if isinstance(statement, MERGED_WHEN_ADJACENT) and type(statement) is type(
+                previous
+            ):
+                body.append("pass")
+
+            if isinstance(statement, RawBlock):
+                body.append(util.get_code(statement, **{**inner, "block_header": True}))
+            else:
+                body.append(util.get_code(statement, **inner))
+            previous = statement
+
+        if not body:
+            body.append("pass")
+
+        if not kwargs.get("block_header"):
+            return "\n".join(body)
+        return "block:\n" + util.indent("\n".join(body))
 
 
 class Block(Statement):
@@ -129,10 +146,9 @@ class RawMultipurpose(RawStatement):
         if not rv:
             # if no properties, return just the warp
             return start
-        if len(rv) < 3:
-            # if only few properties, return them in one line
-            return start + " " + " ".join(rv)
-        return start + ":\n" + util.indent(" ".join(rv))
+        # targets stay on one line: the indented form means the same thing and
+        # is harder to get right
+        return start + " " + " ".join(rv)
 
 
 class RawContainsExpr(RawStatement):
@@ -159,14 +175,18 @@ class RawChild(RawStatement):
 
     atl_counts ::=  "contains" ":"
                    atl_block
+
+    Consecutive `contains:` blocks merge into one node, one child each.
     """
 
     def get_code(self, **kwargs) -> str:
-        children = util.attr(self, "children")
-        if not children:
-            return "contains:\n    pass"
-        rv = ["contains:"]
-        rv.append(util.indent(util.get_code(children, **kwargs)))
+        children = util.attr(self, "children") or []
+        rv = []
+        for child in children:
+            rv.append("contains:")
+            rv.append(util.indent(util.get_code(child, **kwargs)))
+        if not rv:
+            rv = ["contains:", util.indent("pass")]
         return "\n".join(rv)
 
 
@@ -203,15 +223,18 @@ class RawParallel(RawStatement):
 
     atl_parallel ::=  ("parallel" ":"
                      atl_block)+
+
+    Consecutive branches are merged into one node, so every block needs its
+    own `parallel:` header back.
     """
 
     def get_code(self, **kwargs) -> str:
-        rv = ["parallel:"]
-        blocks = util.attr(self, "blocks")
-        if not blocks:
-            rv.append(util.indent("pass"))
-        else:
-            rv.append(util.indent(util.get_code(blocks, **kwargs)))
+        rv = []
+        for block in util.attr(self, "blocks") or []:
+            rv.append("parallel:")
+            rv.append(util.indent(util.get_code(block, **kwargs)))
+        if not rv:
+            rv = ["parallel:", util.indent("pass")]
         return "\n".join(rv)
 
 
@@ -229,9 +252,13 @@ class RawChoice(RawStatement):
 
     def get_code(self, **kwargs) -> str:
         rv = []
-        for text, stmt in self.choices:
-            rv.append(f"choice {text}:")
-            rv.append(util.indent(util.get_code(stmt, **kwargs)))
+        for chance, block in util.attr(self, "choices") or []:
+            # an unwritten weight is stored as 1.0, which is the default
+            header = "choice:" if chance in (None, "1.0") else f"choice {chance}:"
+            rv.append(header)
+            rv.append(util.indent(util.get_code(block, **kwargs)))
+        if not rv:
+            rv = ["choice:", util.indent("pass")]
         return "\n".join(rv)
 
 
@@ -317,3 +344,8 @@ class RawFunction(RawStatement):
 
 class Function(Statement):
     pass
+
+
+# These merge with the node before them when the parser reads them back, so two
+# of them in a row need a `pass` between them to stay two.
+MERGED_WHEN_ADJACENT = (RawParallel, RawChoice, RawChild, RawOn)
