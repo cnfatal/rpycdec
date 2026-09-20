@@ -1,7 +1,13 @@
 # rpycdec
 
-A tool for decompiling Ren'py compiled script files (.rpyc and .rpymc), for
-Ren'Py 7 and 8.
+[![PyPI](https://img.shields.io/pypi/v/rpycdec)](https://pypi.org/project/rpycdec/)
+[![Python versions](https://img.shields.io/pypi/pyversions/rpycdec)](https://pypi.org/project/rpycdec/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![tests](https://github.com/cnfatal/rpycdec/actions/workflows/test.yml/badge.svg)](https://github.com/cnfatal/rpycdec/actions/workflows/test.yml)
+
+A tool for decompiling Ren'Py compiled script files (`.rpyc` and `.rpymc`) back
+to readable `.rpy` source. It reads scripts compiled by Ren'Py 7 and 8, and is
+tested against 7.6.3, 8.2.3, 8.4.1 and 8.5.3.
 
 ## Features
 
@@ -21,21 +27,26 @@ structures, against fixtures and the scripts the Ren'Py SDKs ship: see
 
 ## Installation
 
-Install with pip:
+Needs Python 3.10 or newer.
 
 ```sh
 pip install rpycdec
 ```
 
-Or install from source:
+To work on rpycdec itself, install it from a clone in editable mode, which
+brings the linter along:
 
 ```sh
 git clone https://github.com/cnfatal/rpycdec.git
 cd rpycdec
-pip install .
+pip install -e ".[dev]"
 ```
 
-## Quick start
+The wheel also installs the `renpy` and `store` packages the tool uses to
+rebuild a script's objects, so keep it out of an environment where the real
+Ren'Py is installed.
+
+## Usage
 
 `<required>`, `[optional]`, `...` repeats, `-v` for verbose output.
 
@@ -90,7 +101,7 @@ See also: [Python pickle security warning](https://docs.python.org/3/library/pic
 
 - **Q: A statement came out wrong, or as a comment like `# <unrecognized: Foo>`**
 
-  A: Attach the structure of the file to the issue: `rpycdec dump common/00style.rpyc`.
+  A: Attach the structure of the file to the issue: `rpycdec dump game/script.rpyc`.
   It prints every node with the attributes it carries, including what the
   decompiled script has no way to show, and an `<unrecognized: ...>` names the
   class our fake `renpy` package is missing.
@@ -104,6 +115,9 @@ See also: [Python pickle security warning](https://docs.python.org/3/library/pic
 ## Contributing
 
 Contributions are welcome! Please [open an issue](https://github.com/cnfatal/rpycdec/issues) before submitting major changes so we can discuss the approach.
+
+How the decompiler works, why it ships a fake `renpy` package, and where a
+missing node class goes: [DEVELOP.md](DEVELOP.md).
 
 ### Testing
 
@@ -136,6 +150,6 @@ when `sdks/` is empty. Set `RPYCDEC_SDKS` to point at SDK roots elsewhere.
 - [GitHub Issues](https://github.com/cnfatal/rpycdec/issues) — Bug reports and feature requests
 - [Telegram Group](https://t.me/rpycdec) — Community discussion and support
 
-## Alternative
+## Alternatives
 
 - [unrpyc](https://github.com/CensoredUsername/unrpyc) - The well-established and widely-used Ren'Py script decompiler

@@ -1,0 +1,38 @@
+name: tests
+
+# The end to end tests (tests/test_roundtrip.py, tests/test_corpus.py) need a
+# Ren'Py SDK under sdks/, which is not in the repository; they skip when it is
+# missing, so the job below is the unit and integration layers. See the Testing
+# section of the README for running the rest locally.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # hatch-vcs takes the version from the git tags
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Test
+        run: make test
